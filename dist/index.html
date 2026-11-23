@@ -12,6 +12,19 @@
     <link rel="stylesheet" href="roles.css" />
   </head>
   <body>
+    <section class="login-gate" id="loginGate">
+      <div class="login-brand"><span class="brand-mark">V</span><span>VesselWatch</span></div>
+      <div class="login-card">
+        <p class="eyebrow">MEPG PALAWAN · SYSTEM DRAFT</p>
+        <h1>Access VesselWatch</h1>
+        <p>Select a sample account to preview the correct station-based dashboard and permissions.</p>
+        <label>Account role<select id="gateRole"><option value="regional">Regional Admin</option><option value="station">Station Admin</option><option value="inspector" selected>Inspector Personnel</option><option value="records">Records Officer</option></select></label>
+        <label>Assigned station<select id="gateStation"><option>Puerto Princesa</option><option>El Nido</option><option>Taytay</option><option>Coron</option><option>San Vicente</option><option>Roxas</option><option>Brooke's Point</option><option>Quezon</option><option>Balabac</option></select></label>
+        <button class="primary-btn access-btn" id="enterDashboard">Enter dashboard</button>
+        <small>Demo only. Production use requires a secure named-user login.</small>
+      </div>
+    </section>
+    <div id="appShell" class="app-shell role-hidden">
     <aside class="sidebar">
       <div class="brand"><span class="brand-mark">V</span><span>VesselWatch</span></div>
       <div class="workspace">MEPG PALAWAN <span>●</span></div>
@@ -91,6 +104,7 @@
         </div>
       </section>
     </main>
+    </div>
 
     <dialog id="inspectionModal"><form method="dialog"><button class="close" value="cancel">×</button><p class="eyebrow">NEW INSPECTION DRAFT</p><h2>Record an inspection</h2><label>Vessel <input placeholder="Search vessel name or registration" /></label><label>Inspection station <select><option>Puerto Princesa</option><option>El Nido</option><option>Coron</option></select></label><label>Initial finding <textarea placeholder="Add a concise observation"></textarea></label><div class="modal-actions"><button value="cancel" class="cancel-btn">Cancel</button><button value="default" class="primary-btn">Save draft</button></div></form></dialog>
     <div class="toast" id="toast" role="status"></div>

@@ -15,16 +15,20 @@ const search = document.querySelector('#vesselSearch');
 const results = document.querySelector('#searchResults');
 const toast = document.querySelector('#toast');
 const roleSelector = document.querySelector('#roleSelector');
+const gateRole = document.querySelector('#gateRole');
+const gateStation = document.querySelector('#gateStation');
 let activeRole = roleSelector.value;
+let activeStation = gateStation.value;
 
 function message(text) { toast.textContent = text; toast.classList.add('show'); setTimeout(() => toast.classList.remove('show'), 2800); }
 
 function applyRole() {
   const role = roleData[activeRole];
+  const isRegional = activeRole === 'regional';
   document.querySelector('#signedInAs').textContent = role.title;
-  document.querySelector('#stationScope').textContent = role.scope;
+  document.querySelector('#stationScope').textContent = isRegional ? role.scope : `${activeStation} Station`;
   document.querySelector('#dashboard').textContent = role.greeting;
-  document.querySelector('#roleSummary').textContent = role.summary;
+  document.querySelector('#roleSummary').textContent = isRegional ? role.summary : role.summary.replaceAll('Puerto Princesa', activeStation);
   document.querySelector('#newInspection').classList.toggle('role-hidden', !role.inspection);
   document.querySelector('#reports').classList.toggle('role-hidden', !role.reports);
   document.querySelector('#accessPanel').classList.toggle('role-hidden', !role.access);
@@ -39,7 +43,7 @@ function renderResults(value) {
   const term = value.trim().toLowerCase();
   if (!term) { results.classList.remove('show'); results.innerHTML = ''; return; }
   const role = roleData[activeRole];
-  const matches = vessels.filter(v => (!role.station || v.station === role.station) && Object.values(v).some(x => x.toLowerCase().includes(term)));
+  const matches = vessels.filter(v => (!role.station || v.station === activeStation) && Object.values(v).some(x => x.toLowerCase().includes(term)));
   results.classList.add('show');
   results.innerHTML = matches.length
     ? matches.map(v => `<div class="result"><div><strong>${v.name}</strong><p>${v.id} · ${v.reg} · ${v.station} · ${v.status}</p></div><button data-vessel="${v.name}">Open record</button></div>`).join('')
@@ -48,6 +52,16 @@ function renderResults(value) {
 
 search.addEventListener('input', e => renderResults(e.target.value));
 roleSelector.addEventListener('change', e => { activeRole = e.target.value; applyRole(); message(`Demo role changed to ${roleData[activeRole].title}.`); });
+gateRole.addEventListener('change', () => { gateStation.disabled = gateRole.value === 'regional'; });
+document.querySelector('#enterDashboard').addEventListener('click', () => {
+  activeRole = gateRole.value;
+  activeStation = gateStation.value;
+  roleSelector.value = activeRole;
+  applyRole();
+  document.querySelector('#loginGate').classList.add('role-hidden');
+  document.querySelector('#appShell').classList.remove('role-hidden');
+  message(`Signed in as ${roleData[activeRole].title}.`);
+});
 results.addEventListener('click', e => { if (e.target.dataset.vessel) message(`${e.target.dataset.vessel} record opened in the full system.`); });
 document.querySelector('#newInspection').addEventListener('click', () => document.querySelector('#inspectionModal').showModal());
 document.querySelector('#scanButton').addEventListener('click', () => message('QR scanning will be available in the inspector mobile app.'));

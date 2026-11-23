@@ -12,5 +12,15 @@
 .station-card select:focus { outline: 2px solid #37c9bd; outline-offset: 2px; }
 .role-hidden { display: none !important; }
 .role-locked { opacity: .48; pointer-events: none; }
+.login-gate { min-height: 100vh; display: grid; place-items: center; padding: 28px; background: radial-gradient(circle at 18% 16%, #1e5c6e 0, transparent 34%), #082c3f; color: #f4ffff; }
+.login-brand { position: fixed; top: 28px; left: 34px; display: flex; gap: 10px; align-items: center; font-size: 20px; font-weight: 800; }
+.login-card { width: min(460px, 100%); padding: 34px; border: 1px solid #39717f; border-radius: 16px; background: #f8fbfb; color: #17272e; box-shadow: 0 25px 70px #00000055; display: grid; gap: 18px; }
+.login-card h1 { font-size: 32px; letter-spacing: -1.2px; }
+.login-card > p:not(.eyebrow) { color: #62767d; line-height: 1.55; }
+.login-card label { display: grid; gap: 7px; font-size: 13px; font-weight: 800; }
+.login-card select { padding: 11px; border: 1px solid #b9cccf; border-radius: 8px; background: white; font: 14px Manrope, sans-serif; }
+.access-btn { width: 100%; margin-top: 4px; }
+.login-card small { color: #6f8187; line-height: 1.45; }
+.app-shell { min-height: 100vh; }
 @media (max-width: 900px) { .role-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 600px) { .role-grid { grid-template-columns: 1fr; } }
