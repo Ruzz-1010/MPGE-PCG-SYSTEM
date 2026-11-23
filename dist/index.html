@@ -23,7 +23,7 @@
         <a class="nav-link" href="#reports">Reports</a>
       </nav>
       <div class="sidebar-bottom">
-        <div class="station-card"><span class="small-label">SIGNED IN AS</span><strong>Station Officer</strong><span>Puerto Princesa Station</span></div>
+        <div class="station-card"><span class="small-label">DEMO ACCOUNT ROLE</span><select id="roleSelector" aria-label="Select demo account role"><option value="regional">Regional Admin</option><option value="station">Station Admin</option><option value="inspector" selected>Inspector Personnel</option><option value="records">Records Officer</option></select><strong id="signedInAs">Inspector Personnel</strong><span id="stationScope">Puerto Princesa Station</span></div>
         <button class="plain-btn" id="helpButton">System guide</button>
       </div>
     </aside>
@@ -32,8 +32,8 @@
       <header>
         <div>
           <p class="eyebrow">CENTRALIZED RECORDS · DRAFT SYSTEM</p>
-          <h1 id="dashboard">Good morning, Officer.</h1>
-          <p class="subhead">Here is the latest cross-station vessel record activity.</p>
+          <h1 id="dashboard">Good morning, Inspector.</h1>
+          <p class="subhead" id="roleSummary">Create inspection drafts and upload evidence for Puerto Princesa Station.</p>
         </div>
         <div class="header-actions">
           <button class="icon-btn" aria-label="Notifications">●<span class="notification-dot"></span></button>
@@ -81,7 +81,7 @@
         </div>
       </section>
 
-      <section class="panel access-panel">
+      <section class="panel access-panel" id="accessPanel">
         <div class="panel-head"><div><p class="eyebrow">ACCESS CONTROL</p><h2>Station accounts and permissions</h2></div><button class="primary-btn" id="manageUsers">Manage users</button></div>
         <div class="role-grid">
           <div><span class="role-icon regional">RA</span><strong>Regional Admin</strong><p>Authorized cross-station reports, station setup, and account oversight.</p></div>

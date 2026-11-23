@@ -8,5 +8,9 @@
 .station { background: #e6f3ff; color: #3273aa; }
 .personnel { background: #e7f7f2; color: #167865; }
 .records { background: #fff0dd; color: #ae6b1d; }
+.station-card select { width: 100%; color: #ffffff; background: #0b3042; border: 1px solid #3d6873; border-radius: 6px; padding: 8px; font: 600 12px Manrope, sans-serif; }
+.station-card select:focus { outline: 2px solid #37c9bd; outline-offset: 2px; }
+.role-hidden { display: none !important; }
+.role-locked { opacity: .48; pointer-events: none; }
 @media (max-width: 900px) { .role-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 600px) { .role-grid { grid-template-columns: 1fr; } }
