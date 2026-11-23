@@ -1,0 +1,12 @@
+.access-panel { margin-top: 18px; }
+.role-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 18px; }
+.role-grid > div { border: 1px solid var(--line); border-radius: 9px; padding: 15px; min-height: 150px; }
+.role-grid strong { display: block; margin-top: 11px; font-size: 14px; }
+.role-grid p { font-size: 12px; line-height: 1.55; color: var(--muted); margin-top: 5px; }
+.role-icon { height: 30px; width: 30px; display: grid; place-items: center; border-radius: 7px; font: 700 10px 'DM Mono', monospace; }
+.regional { background: #e9e5ff; color: #6049a6; }
+.station { background: #e6f3ff; color: #3273aa; }
+.personnel { background: #e7f7f2; color: #167865; }
+.records { background: #fff0dd; color: #ae6b1d; }
+@media (max-width: 900px) { .role-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 600px) { .role-grid { grid-template-columns: 1fr; } }

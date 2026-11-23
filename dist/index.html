@@ -9,6 +9,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="roles.css" />
   </head>
   <body>
     <aside class="sidebar">
@@ -77,6 +78,16 @@
         <div class="panel-head"><div><p class="eyebrow">NETWORK OVERVIEW</p><h2>Station synchronization</h2></div><span class="sync-status">● Latest sync 10:04 AM</span></div>
         <div class="station-grid">
           <div><strong>Puerto Princesa</strong><span>634 vessels</span><em>Synced</em></div><div><strong>El Nido</strong><span>398 vessels</span><em>Synced</em></div><div><strong>Taytay</strong><span>355 vessels</span><em>Synced</em></div><div><strong>Coron</strong><span>321 vessels</span><em>Synced</em></div><div><strong>San Vicente</strong><span>272 vessels</span><em>Synced</em></div><div><strong>Roxas</strong><span>249 vessels</span><em>Synced</em></div><div><strong>Brooke's Point</strong><span>237 vessels</span><em>Synced</em></div><div><strong>Quezon</strong><span>198 vessels</span><em>Synced</em></div><div><strong>Balabac</strong><span>182 vessels</span><em>Synced</em></div>
+        </div>
+      </section>
+
+      <section class="panel access-panel">
+        <div class="panel-head"><div><p class="eyebrow">ACCESS CONTROL</p><h2>Station accounts and permissions</h2></div><button class="primary-btn" id="manageUsers">Manage users</button></div>
+        <div class="role-grid">
+          <div><span class="role-icon regional">RA</span><strong>Regional Admin</strong><p>Authorized cross-station reports, station setup, and account oversight.</p></div>
+          <div><span class="role-icon station">SA</span><strong>Station Admin</strong><p>Manages users and reviews submissions within the assigned station.</p></div>
+          <div><span class="role-icon personnel">IP</span><strong>Inspector Personnel</strong><p>Searches records, creates inspection drafts, and uploads evidence.</p></div>
+          <div><span class="role-icon records">RO</span><strong>Records Officer</strong><p>Checks documents, validity dates, and report-ready information.</p></div>
         </div>
       </section>
     </main>

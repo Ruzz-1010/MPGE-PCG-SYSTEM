@@ -19,4 +19,5 @@ results.addEventListener('click',e=>{if(e.target.dataset.vessel)message(`${e.tar
 document.querySelector('#newInspection').addEventListener('click',()=>document.querySelector('#inspectionModal').showModal());
 document.querySelector('#scanButton').addEventListener('click',()=>message('QR scanning will be available in the inspector mobile app.'));
 document.querySelector('#helpButton').addEventListener('click',()=>message('Draft system: all displayed information is sample data.'));
+document.querySelector('#manageUsers').addEventListener('click',()=>message('User management will let a Station Admin create and deactivate personnel accounts for their station.'));
 document.querySelector('#inspectionModal').addEventListener('close',()=>{if(document.querySelector('#inspectionModal').returnValue==='default')message('Inspection saved as a local draft.');});
