@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="MEPG VesselWatch interactive system draft" />
+    <title>MEPG VesselWatch</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark">V</span><span>VesselWatch</span></div>
+      <div class="workspace">MEPG PALAWAN <span>●</span></div>
+      <nav aria-label="Main navigation">
+        <a class="nav-link active" href="#dashboard">Dashboard</a>
+        <a class="nav-link" href="#vessels">Vessel registry</a>
+        <a class="nav-link" href="#inspections">Inspections</a>
+        <a class="nav-link" href="#documents">Documents</a>
+        <a class="nav-link" href="#reports">Reports</a>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="station-card"><span class="small-label">SIGNED IN AS</span><strong>Station Officer</strong><span>Puerto Princesa Station</span></div>
+        <button class="plain-btn" id="helpButton">System guide</button>
+      </div>
+    </aside>
+
+    <main>
+      <header>
+        <div>
+          <p class="eyebrow">CENTRALIZED RECORDS · DRAFT SYSTEM</p>
+          <h1 id="dashboard">Good morning, Officer.</h1>
+          <p class="subhead">Here is the latest cross-station vessel record activity.</p>
+        </div>
+        <div class="header-actions">
+          <button class="icon-btn" aria-label="Notifications">●<span class="notification-dot"></span></button>
+          <button class="primary-btn" id="newInspection">+ New inspection</button>
+        </div>
+      </header>
+
+      <section class="metrics" aria-label="System metrics">
+        <article><span class="metric-label">REGISTERED VESSELS</span><strong>2,846</strong><small>Across 9 stations</small></article>
+        <article><span class="metric-label">FOR REVIEW</span><strong class="warning">34</strong><small>Documents near expiry</small></article>
+        <article><span class="metric-label">INSPECTIONS TODAY</span><strong>17</strong><small>Updated 3 min ago</small></article>
+        <article><span class="metric-label">SYSTEM STATUS</span><strong class="online">Online</strong><small>All stations connected</small></article>
+      </section>
+
+      <section class="search-section" id="vessels">
+        <div class="section-heading"><div><p class="eyebrow">QUICK LOOKUP</p><h2>Find a vessel record</h2></div><button class="scan-btn" id="scanButton">⌁ Scan QR</button></div>
+        <div class="searchbox"><span>⌕</span><input id="vesselSearch" placeholder="Search by vessel name, official registration no., or VesselWatch ID" autocomplete="off" /><kbd>Enter</kbd></div>
+        <div id="searchResults" class="search-results" aria-live="polite"></div>
+      </section>
+
+      <section class="grid-two">
+        <article class="panel" id="inspections">
+          <div class="panel-head"><div><p class="eyebrow">LATEST ACTIVITY</p><h2>Recent inspections</h2></div><button class="text-btn">View all</button></div>
+          <div class="activity-list">
+            <div class="activity"><div class="avatar blue">MS</div><div><strong>M/V Sea Horizon</strong><p>Inspection completed · El Nido</p></div><time>09:42</time></div>
+            <div class="activity"><div class="avatar green">SV</div><div><strong>M/V San Vicente</strong><p>Document verification · San Vicente</p></div><time>09:18</time></div>
+            <div class="activity"><div class="avatar gold">BD</div><div><strong>M/V Balabac Dawn</strong><p>Inspection draft created · Balabac</p></div><time>08:51</time></div>
+            <div class="activity"><div class="avatar purple">CR</div><div><strong>M/V Coron Runner</strong><p>Corrective action updated · Coron</p></div><time>08:35</time></div>
+          </div>
+        </article>
+        <article class="panel" id="documents">
+          <div class="panel-head"><div><p class="eyebrow">ATTENTION NEEDED</p><h2>Document alerts</h2></div><button class="text-btn">View all</button></div>
+          <div class="alert-list">
+            <div class="doc-alert urgent"><div><strong>M/V Isla Verde</strong><p>Safety certificate expires in 2 days</p></div><button>Review</button></div>
+            <div class="doc-alert"><div><strong>M/V Palawan Star</strong><p>Registration renewal due in 7 days</p></div><button>Review</button></div>
+            <div class="doc-alert"><div><strong>M/V Kalayaan</strong><p>Insurance document needs verification</p></div><button>Review</button></div>
+          </div>
+        </article>
+      </section>
+
+      <section class="panel station-panel" id="reports">
+        <div class="panel-head"><div><p class="eyebrow">NETWORK OVERVIEW</p><h2>Station synchronization</h2></div><span class="sync-status">● Latest sync 10:04 AM</span></div>
+        <div class="station-grid">
+          <div><strong>Puerto Princesa</strong><span>634 vessels</span><em>Synced</em></div><div><strong>El Nido</strong><span>398 vessels</span><em>Synced</em></div><div><strong>Taytay</strong><span>355 vessels</span><em>Synced</em></div><div><strong>Coron</strong><span>321 vessels</span><em>Synced</em></div><div><strong>San Vicente</strong><span>272 vessels</span><em>Synced</em></div><div><strong>Roxas</strong><span>249 vessels</span><em>Synced</em></div><div><strong>Brooke's Point</strong><span>237 vessels</span><em>Synced</em></div><div><strong>Quezon</strong><span>198 vessels</span><em>Synced</em></div><div><strong>Balabac</strong><span>182 vessels</span><em>Synced</em></div>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="inspectionModal"><form method="dialog"><button class="close" value="cancel">×</button><p class="eyebrow">NEW INSPECTION DRAFT</p><h2>Record an inspection</h2><label>Vessel <input placeholder="Search vessel name or registration" /></label><label>Inspection station <select><option>Puerto Princesa</option><option>El Nido</option><option>Coron</option></select></label><label>Initial finding <textarea placeholder="Add a concise observation"></textarea></label><div class="modal-actions"><button value="cancel" class="cancel-btn">Cancel</button><button value="default" class="primary-btn">Save draft</button></div></form></dialog>
+    <div class="toast" id="toast" role="status"></div>
+    <script src="app.js"></script>
+  </body>
+</html>
