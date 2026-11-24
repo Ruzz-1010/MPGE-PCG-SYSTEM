@@ -8,12 +8,15 @@ This static draft demonstrates a centralized vessel-record dashboard for nine st
 
 ## Current Features
 
-- Role-and-station entry screen
-- Role-based dashboard demo for Regional Admin, Station Admin, Inspector Personnel, and Records Officer
-- Station-scoped vessel lookup simulation
-- Vessel dashboard metrics, activity log, document alerts, and station synchronization view
-- Inspection-draft modal
-- Responsive desktop and mobile layout
+- Practical role-and-station entry screen
+- Role-aware workspaces for Regional Admin, Station Admin, Inspector Personnel, Records Officer, and IT System Administrator
+- Dashboard with station-scoped metrics, recent activity, and work queue
+- Vessel Registry with authorized records, filters, status, and registration draft form
+- Inspection Management with Draft, Submitted, Reviewed, and Returned workflow states
+- Document Management with verification and expiration status
+- Loading/Unloading and Bunkering operation records linked to vessel profiles
+- Notifications, Station Management, Reports, Audit Trail, Backup & Recovery, and User Management screens
+- Responsive desktop and mobile application shell
 
 ## Project Structure
 
@@ -40,8 +43,8 @@ The current role switcher is a **frontend demonstration only**. In the productio
 
 ## Next Build Steps
 
-1. Replace sample data with a Node.js/Express API.
-2. Implement PostgreSQL tables, station memberships, and audit events.
-3. Add secure authentication and server-enforced role-based access control.
-4. Add private cloud storage for photos and PDFs.
-5. Add actual account administration and inspection workflows.
+1. Replace sample data and local prototype actions with a Node.js/Express API.
+2. Implement PostgreSQL tables, constraints, station memberships, workflow history, and audit events.
+3. Add secure authentication, sessions, password hashing, MFA for privileged users, and backend-enforced access control.
+4. Add private validated storage for documents, photos, and inspection evidence.
+5. Implement persistence, version history, exports, notification delivery, and tested backup/restore procedures.
