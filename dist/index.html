@@ -31,6 +31,7 @@
       <nav aria-label="Main navigation">
         <a class="nav-link active" href="#dashboard">Dashboard</a>
         <a class="nav-link" href="#vessels">Vessel registry</a>
+        <a class="nav-link" href="#operations">Operations</a>
         <a class="nav-link" href="#inspections">Inspections</a>
         <a class="nav-link" href="#documents">Documents</a>
         <a class="nav-link" href="#reports">Reports</a>
@@ -66,6 +67,16 @@
         <div class="section-heading"><div><p class="eyebrow">QUICK LOOKUP</p><h2>Find a vessel record</h2></div><button class="scan-btn" id="scanButton">⌁ Scan QR</button></div>
         <div class="searchbox"><span>⌕</span><input id="vesselSearch" placeholder="Search by vessel name, official registration no., or VesselWatch ID" autocomplete="off" /><kbd>Enter</kbd></div>
         <div id="searchResults" class="search-results" aria-live="polite"></div>
+      </section>
+
+      <section class="panel operations-panel" id="operations">
+        <div class="panel-head"><div><p class="eyebrow">VESSEL OPERATIONS</p><h2>Loading, unloading, and bunkering</h2></div><span class="sync-status">● Centralized notification record</span></div>
+        <p class="operation-intro">Create an operation notification under the correct vessel profile. Required documents and details stay with the vessel record instead of being separated across forms.</p>
+        <div class="operation-grid">
+          <article class="operation-card loading"><div class="operation-badge">L/U</div><div><h3>Loading / Unloading</h3><p>Record cargo movement, terminal or depot, destination, product, schedule, and supporting documents.</p><button class="operation-action" data-operation="loading">New loading / unloading</button></div></article>
+          <article class="operation-card bunkering"><div class="operation-badge">BNK</div><div><h3>Bunkering</h3><p>Record fuel product, volume, location, schedule, vessel representative, and required evidence.</p><button class="operation-action" data-operation="bunkering">New bunkering notification</button></div></article>
+        </div>
+        <div class="operation-history"><span class="small-label">SAMPLE NOTIFICATIONS</span><div><strong>M/V Sea Horizon</strong><span>Loading · Puerto Princesa Port · Draft</span><time>Today, 09:42</time></div><div><strong>M/V Coron Runner</strong><span>Bunkering · Coron Anchorage · Submitted</span><time>Yesterday</time></div></div>
       </section>
 
       <section class="grid-two">
@@ -108,7 +119,8 @@
     </div>
 
     <dialog id="inspectionModal"><form method="dialog"><button class="close" value="cancel">×</button><p class="eyebrow">NEW INSPECTION DRAFT</p><h2>Record an inspection</h2><label>Vessel <input placeholder="Search vessel name or registration" /></label><label>Inspection station <select><option>Puerto Princesa</option><option>El Nido</option><option>Coron</option></select></label><label>Initial finding <textarea placeholder="Add a concise observation"></textarea></label><div class="modal-actions"><button value="cancel" class="cancel-btn">Cancel</button><button value="default" class="primary-btn">Save draft</button></div></form></dialog>
+    <dialog id="operationModal"><form method="dialog"><button class="close" value="cancel">×</button><p class="eyebrow" id="operationKicker">OPERATION NOTIFICATION</p><h2 id="operationTitle">New vessel operation</h2><p class="modal-copy" id="operationDescription"></p><label>Vessel record <select><option>M/V Sea Horizon · VW-PP-01482</option><option>M/V Isla Verde · VW-EN-00376</option><option>M/V Coron Runner · VW-CR-00719</option></select></label><label>Operation location <input placeholder="Port, depot, terminal, or anchorage" /></label><div class="modal-two"><label>Operation date <input type="date" /></label><label id="operationVolumeLabel">Product volume (liters)<input inputmode="numeric" placeholder="0" /></label></div><label id="operationDetailsLabel">Required supporting documents <span class="document-hint" id="operationDocuments"></span></label><label>Vessel master / authorized representative <input placeholder="Full name" /></label><div class="modal-actions"><button value="cancel" class="cancel-btn">Cancel</button><button value="default" class="primary-btn">Save notification draft</button></div></form></dialog>
     <div class="toast" id="toast" role="status"></div>
-    <script src="assets/js/app.js"></script>
+    <script src="assets/js/app.js?v=2"></script>
   </body>
 </html>

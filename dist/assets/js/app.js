@@ -75,4 +75,28 @@ document.querySelector('#scanButton').addEventListener('click', () => message('Q
 document.querySelector('#helpButton').addEventListener('click', () => message('Draft system: all displayed information is sample data.'));
 document.querySelector('#manageUsers').addEventListener('click', () => message('User management will let an authorized admin create and deactivate personnel accounts.'));
 document.querySelector('#inspectionModal').addEventListener('close', () => { if (document.querySelector('#inspectionModal').returnValue === 'default') message('Inspection saved as a local draft.'); });
+const operationModal = document.querySelector('#operationModal');
+const operationContent = {
+  loading: {
+    kicker: 'LOADING / UNLOADING NOTIFICATION',
+    title: 'New loading / unloading record',
+    description: 'Attach this notification to the vessel record so its cargo operation and evidence remain traceable.',
+    documents: 'CVR, Product Safety Data Sheet, Bill of Lading / Cargo Manifest, and Notification Form.'
+  },
+  bunkering: {
+    kicker: 'BUNKERING NOTIFICATION',
+    title: 'New bunkering record',
+    description: 'Keep fuel activity, product volume, and supporting evidence in the vessel’s centralized history.',
+    documents: 'CVR, POL Purchase Order / Bunkering Plan, Product Safety Data Sheet, and Notification Form.'
+  }
+};
+document.querySelectorAll('.operation-action').forEach(button => button.addEventListener('click', () => {
+  const operation = operationContent[button.dataset.operation];
+  document.querySelector('#operationKicker').textContent = operation.kicker;
+  document.querySelector('#operationTitle').textContent = operation.title;
+  document.querySelector('#operationDescription').textContent = operation.description;
+  document.querySelector('#operationDocuments').textContent = operation.documents;
+  operationModal.showModal();
+}));
+operationModal.addEventListener('close', () => { if (operationModal.returnValue === 'default') message('Operation notification saved as a local draft.'); });
 applyRole();
