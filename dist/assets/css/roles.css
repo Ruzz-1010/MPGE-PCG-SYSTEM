@@ -22,5 +22,7 @@
 .access-btn { width: 100%; margin-top: 4px; }
 .login-card small { color: #6f8187; line-height: 1.45; }
 .app-shell { min-height: 100vh; }
+.secondary-btn { border: 1px solid var(--line); background: #fff; color: var(--navy); border-radius: 9px; padding: 10px 13px; font: 600 14px Manrope, sans-serif; cursor: pointer; }
+.secondary-btn:hover { border-color: #82aca9; background: #f0f8f7; }
 @media (max-width: 900px) { .role-grid { grid-template-columns: repeat(2, 1fr); } }
-@media (max-width: 600px) { .role-grid { grid-template-columns: 1fr; } }
+@media (max-width: 600px) { .role-grid { grid-template-columns: 1fr; } .sidebar .brand span:last-child { display: block; color: #fff; } .sidebar::after { content: 'MEPG Palawan · Draft'; margin-left: auto; color: #a3c1c5; font: 10px 'DM Mono', monospace; letter-spacing: .05em; } .header-actions { flex-wrap: wrap; justify-content: flex-end; } .secondary-btn { padding: 10px 11px; font-size: 12px; } }

@@ -62,6 +62,13 @@ document.querySelector('#enterDashboard').addEventListener('click', () => {
   document.querySelector('#appShell').classList.remove('role-hidden');
   message(`Signed in as ${roleData[activeRole].title}.`);
 });
+document.querySelector('#changeAccount').addEventListener('click', () => {
+  gateRole.value = activeRole;
+  gateStation.value = activeStation;
+  gateStation.disabled = activeRole === 'regional';
+  document.querySelector('#appShell').classList.add('role-hidden');
+  document.querySelector('#loginGate').classList.remove('role-hidden');
+});
 results.addEventListener('click', e => { if (e.target.dataset.vessel) message(`${e.target.dataset.vessel} record opened in the full system.`); });
 document.querySelector('#newInspection').addEventListener('click', () => document.querySelector('#inspectionModal').showModal());
 document.querySelector('#scanButton').addEventListener('click', () => message('QR scanning will be available in the inspector mobile app.'));
