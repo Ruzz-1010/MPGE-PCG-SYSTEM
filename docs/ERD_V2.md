@@ -24,6 +24,8 @@ erDiagram
         timestamptz created_at
         integer failed_login_count
         timestamptz login_blocked_until
+        text mfa_secret_cipher
+        bigint mfa_last_step
     }
     sessions {
         text token_hash PK

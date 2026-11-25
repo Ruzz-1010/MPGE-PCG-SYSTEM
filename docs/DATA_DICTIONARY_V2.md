@@ -633,3 +633,12 @@ See 001 and 002 for normalized registration uniqueness, QR active uniqueness, ev
 - `CREATE INDEX sync_actor_state ON vw.sync_requests(actor_id,state);`
 - `CREATE INDEX monthly_reports_period ON vw.monthly_reports(period_start,station_id);`
 - `CREATE INDEX inbox_recipient ON vw.message_recipients(recipient_id,read_at);`
+
+## Phase 1.4 (migration 004)
+
+| Table | Field | Type | Purpose |
+|---|---|---|---|
+| users | mfa_secret_cipher | text, nullable | AES-256-GCM encrypted authenticator seed, bound to account ID; restricted |
+| users | mfa_last_step | bigint, nullable, nonnegative | Last accepted TOTP time step; prevents replay |
+
+Constraint: last step must be null if seed absent. Migration revokes existing sessions. No additional tables.

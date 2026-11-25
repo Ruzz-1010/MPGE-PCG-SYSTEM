@@ -2,13 +2,38 @@ import express from 'express';
 import helmet from 'helmet';
 import {rateLimit} from 'express-rate-limit';
 import {randomBytes} from 'node:crypto';
+import {fileURLToPath} from 'node:url';
+import {privileged,readKey,unseal,verifyTotp} from './mfa.js';
 import {pool,tx,audit} from './db.js';
 import {hashPassword,verifyPassword,validPassword,tokenHash,newToken} from './passwords.js';
 import {roles,isUuid,canReadVessels,canWriteVessels,stationScope,canManage,canReadAudit} from './policy.js';
 const app=express();
 app.disable('x-powered-by');
 if(process.env.TRUST_LOCAL_PROXY==='1')app.set('trust proxy','loopback');
-app.use(helmet());
+const mfaKey=readKey(process.env.VW_MFA_KEY);
+const localDemo=process.env.VW_LOCAL_HTTP==='1';
+const browserOrigin=new URL(process.env.VW_BROWSER_ORIGIN??'https://localhost').origin;
+if(localDemo&&browserOrigin!=='http://127.0.0.1:3000')throw Error('HTTP demo must use the loopback browser origin');
+if(!localDemo&&!browserOrigin.startsWith('https://'))throw Error('HTTPS browser origin required');
+const cookieName=localDemo?'vw_demo_session':'__Host-vw_session';
+const cookieOptions={httpOnly:true,secure:!localDemo,sameSite:'strict',path:'/'};
+app.use(helmet({strictTransportSecurity:localDemo?false:undefined,contentSecurityPolicy:{directives:{upgradeInsecureRequests:localDemo?null:[]}}}));
+const browserToken=q=>{
+ const values=(q.get('cookie')??'').split(';').map(s=>s.trim()).filter(s=>s.startsWith(cookieName+'='));
+ if(values.length!==1)return null;
+ const t=values[0].slice(cookieName.length+1);
+ return /^[a-f0-9]{64}$/.test(t)?t:null;
+};
+const sameOrigin=q=>q.get('origin')===browserOrigin && !['cross-site','same-site'].includes(q.get('sec-fetch-site'));
+const browserMutation=(q,r,n)=>{
+ if(!sameOrigin(q)||q.get('x-vw-browser')!=='1')return r.status(403).json({error:'Browser origin validation failed'});
+ if(!localDemo&&!q.secure)return r.status(403).json({error:'HTTPS required'});
+ n();
+};
+app.use('/api',(q,r,n)=>{
+ if(browserToken(q)&&!['GET','HEAD','OPTIONS'].includes(q.method))return browserMutation(q,r,n);
+ n();
+});
 app.use(express.json({limit:'32kb'}));
 app.use('/api',(_q,r,n)=>{r.set('Cache-Control','no-store');n();});
 const error=(status,message)=>Object.assign(new Error(message),{status});
@@ -24,8 +49,8 @@ const changeLimiter=rateLimit({windowMs:15*60*1000,limit:12,standardHeaders:true
 const stationActive=async(c,u)=>u.station_id===null||Boolean((await c.query('SELECT id FROM vw.stations WHERE id=$1 AND active',[u.station_id])).rowCount);
 const dummyHash=await hashPassword(randomBytes(32).toString('hex'));
 app.get('/api/health',async(_q,r)=>{try{await pool.query('SELECT 1');r.json({status:'ok'});}catch{r.status(503).json({status:'unavailable'});}});
-app.post('/api/auth/login',loginLimiter,async(q,r)=>{
- const b=body(q,['username','password']),username=text(b.username,64).toLowerCase();
+const login=async(q,r)=>{
+ const b=body(q,['username','password','otp']),username=text(b.username,64).toLowerCase();
  if(!/^[a-z0-9._-]{3,64}$/.test(username))fail(400,'Invalid credentials');
  if(typeof b.password!=='string'||Buffer.byteLength(b.password)>512)fail(400,'Invalid credentials');
  const result=await tx(async c=>{
@@ -33,13 +58,15 @@ app.post('/api/auth/login',loginLimiter,async(q,r)=>{
   const eligible=u&&u.active&&!u.login_blocked&&await stationActive(c,u);
   // A generic response and similar password work for unknown, disabled and locked accounts.
   const valid=await verifyPassword(b.password,eligible?u.password_hash:dummyHash);
-  if(!eligible||!valid){
+  const step=eligible&&valid&&privileged(u.role)&&u.mfa_secret_cipher?verifyTotp(unseal(u.mfa_secret_cipher,mfaKey,u.id),b.otp,u.mfa_last_step):null;
+  if(!eligible||!valid||(privileged(u.role)&&step===null)){
    if(eligible)await c.query(`UPDATE vw.users SET
     failed_login_count=CASE WHEN login_blocked_until IS NOT NULL AND login_blocked_until<=clock_timestamp() THEN 1 ELSE LEAST(failed_login_count+1,5) END,
     login_blocked_until=CASE WHEN (login_blocked_until IS NULL AND failed_login_count>=4) THEN clock_timestamp()+interval '15 minutes' ELSE NULL END
     WHERE id=$1`,[u.id]);
    await audit(c,u,'login','session',null,'denied');return null;
   }
+  if(step!==null)await c.query('UPDATE vw.users SET mfa_last_step=$1 WHERE id=$2',[step,u.id]);
   const token=newToken();
   await c.query('UPDATE vw.users SET failed_login_count=0,login_blocked_until=NULL WHERE id=$1',[u.id]);
   await c.query("DELETE FROM vw.sessions WHERE user_id=$1 AND (expires_at<=clock_timestamp() OR last_seen_at<=clock_timestamp()-interval '30 minutes')",[u.id]);
@@ -49,16 +76,24 @@ app.post('/api/auth/login',loginLimiter,async(q,r)=>{
   return {token,user:{id:u.id,username:u.username,role:u.role,station_id:u.station_id,must_change_password:u.must_change_password}};
  });
  if(!result)fail(401,'Invalid credentials');
+ if(q.path==='/api/browser/login'){r.cookie(cookieName,result.token,{...cookieOptions,maxAge:8*60*60*1000});return r.json({user:result.user});}
  r.json(result);
-});
+};
+app.post('/api/auth/login',loginLimiter,login);
+app.post('/api/browser/login',browserMutation,loginLimiter,login);
 // Serialize requests for the same account and recheck session state after acquiring the account lock.
 const protectedRoute=(action,handler,{allowChange=false}={})=>async(q,r)=>{
  const match=/^Bearer ([a-f0-9]{64})$/.exec(q.get('authorization')??'');
- if(!match)fail(401,'Authentication required');
- const key=tokenHash(match[1]);
+ const cookie=browserToken(q);
+ if(cookie&&q.get('authorization'))fail(400,'Ambiguous credentials');
+ const token=cookie??match?.[1];
+ if(!token)fail(401,'Authentication required');
+ if(cookie&&!localDemo&&!q.secure)fail(403,'HTTPS required');
+ const key=tokenHash(token);
  const result=await tx(async c=>{
   const u=(await c.query('SELECT u.* FROM vw.users u JOIN vw.sessions s ON s.user_id=u.id WHERE s.token_hash=$1 AND s.expires_at>now() AND u.active FOR UPDATE OF u',[key])).rows[0];
   if(!u||!(await c.query("SELECT 1 FROM vw.sessions WHERE token_hash=$1 AND user_id=$2 AND expires_at>clock_timestamp() AND last_seen_at>clock_timestamp()-interval '30 minutes'",[key,u.id])).rowCount)return {status:401,data:{error:'Authentication required'}};
+  if(privileged(u.role)&&!u.mfa_secret_cipher){await c.query('DELETE FROM vw.sessions WHERE user_id=$1',[u.id]);return {status:401,data:{error:'Authentication required'}};}
   if(!await stationActive(c,u)){await c.query('DELETE FROM vw.sessions WHERE user_id=$1',[u.id]);await audit(c,u,action,'request',null,'denied',{reason:'station_inactive'});return {status:403,data:{error:'Station unavailable'}};}
   await c.query('UPDATE vw.sessions SET last_seen_at=clock_timestamp() WHERE token_hash=$1',[key]);
   if(u.must_change_password&&!allowChange){await audit(c,u,action,'request',null,'denied');return {status:403,data:{error:'Change password first'}};}
@@ -69,6 +104,7 @@ const protectedRoute=(action,handler,{allowChange=false}={})=>async(q,r)=>{
    throw e;
   }
  });
+ if(cookie&&(result.status===401||((result.status??200)<400&&['logout','password.change'].includes(action))))r.clearCookie(cookieName,cookieOptions);
  r.status(result.status??200).json(result.data);
 };
 const ok=data=>({data});
@@ -81,6 +117,14 @@ app.post('/api/auth/change-password',changeLimiter,protectedRoute('password.chan
  await c.query('DELETE FROM vw.sessions WHERE user_id=$1',[u.id]);
  await audit(c,u,'password.change','user',u.id);return ok({changed:true,login_required:true});
 },{allowChange:true}));
+app.get('/api/dashboard',protectedRoute('dashboard.read',async(c,u)=>{
+ const global=['regional','technical'].includes(u.role);
+ const stations=(await c.query('SELECT id,code,name,active FROM vw.stations WHERE ($1::boolean OR id=$2::uuid) ORDER BY code',[global,u.station_id])).rows;
+ const metrics={stations:stations.length};
+ if(canReadVessels(u)){const counts=(await c.query("SELECT count(*)::int AS total,count(*) FILTER(WHERE profile_status='active')::int AS active FROM vw.vessels WHERE ($1::boolean OR station_id=$2::uuid)",[u.role==='regional',u.station_id])).rows[0];metrics.vessels=counts.total;metrics.activeVessels=counts.active;}
+ if(['regional','station'].includes(u.role))metrics.accounts=(await c.query('SELECT count(*)::int AS total FROM vw.users WHERE ($1::boolean OR station_id=$2::uuid)',[u.role==='regional',u.station_id])).rows[0].total;
+ await audit(c,u,'dashboard.read','dashboard');return ok({role:u.role,scope:global?'regional':'station',stations,metrics,capabilities:{registry:canReadVessels(u),writeRegistry:canWriteVessels(u),accounts:['regional','station'].includes(u.role),audit:canReadAudit(u)}});
+}));
 app.get('/api/stations',protectedRoute('stations.list',async(c,u)=>{
  const global=['regional','technical'].includes(u.role);
  const rows=(await c.query('SELECT id,code,name,active FROM vw.stations WHERE ($1::boolean OR id=$2::uuid) ORDER BY code',[global,u.station_id])).rows;
@@ -169,6 +213,8 @@ app.get('/api/audit',protectedRoute('audit.list',async(c,u,q)=>{
  const rows=(await c.query('SELECT id,actor_id,station_id,action,resource_type,resource_id,outcome,detail,recorded_at FROM vw.audit_events ORDER BY recorded_at DESC,id DESC LIMIT 50 OFFSET $1',[page(q.query.page)])).rows;
  await audit(c,u,'audit.list','audit');return ok(rows);
 }));
+app.use('/workspace',express.static(fileURLToPath(new URL('../web/',import.meta.url)),{index:'index.html',maxAge:0,setHeaders:r=>r.set('Cache-Control','no-store')}));
+app.get('/',(_q,r)=>r.redirect('/workspace/'));
 app.use((_q,r)=>r.status(404).json({error:'Not found'}));
 app.use((e,_q,r,_n)=>{
  const status=e.status>=400&&e.status<500?e.status:500;

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en" data-theme="graphite">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MEPG VesselWatch | Connected workspace</title><link rel="stylesheet" href="/workspace/style.css"><script type="module" src="/workspace/app.js"></script></head>
+<body>
+<header class="top"><div class="brand"><span class="mark" aria-hidden="true">VW</span><div><strong>MEPG VesselWatch</strong><small>Centralized vessel records · Thesis prototype</small></div></div><label class="theme">Theme <select id="theme"><option value="graphite">Graphite</option><option value="cobalt">Cobalt Blue</option><option value="evergreen">Evergreen</option></select></label></header>
+<main class="shell">
+<p class="notice">Development environment · Fictional data only · Not an official clearance or enforcement system</p>
+<p id="message" role="status" aria-live="polite"></p>
+<section id="login" class="auth card">
+<p class="eyebrow">AUTHORIZED WORKSPACE</p><h1>Sign in to VesselWatch</h1><p>Use your assigned individual account. Your permissions and station are determined by the server.</p>
+<form id="loginForm">
+<label>Username<input name="username" autocomplete="username" required maxlength="64"></label>
+<label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+<label>Authenticator code <small>Required for Regional, Station and IT administrators</small><input name="otp" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6"></label>
+<button type="submit">Sign in</button></form><small>Contact the authorized local operator for account provisioning or MFA recovery.</small>
+</section>
+<section id="password" class="auth card" hidden><h1>Change temporary password</h1><p>Your account requires a new password before accessing records.</p><form id="passwordForm"><label>Current password<input type="password" name="currentPassword" autocomplete="current-password" required></label><label>New password (14–128 characters)<input name="newPassword" type="password" autocomplete="new-password" required minlength="14" maxlength="128"></label><button>Change password</button></form><button id="passwordLogout" class="secondary">Sign out</button></section>
+<section id="workspace" hidden>
+<div class="workspaceHead"><div><p class="eyebrow">CONNECTED DASHBOARD</p><h1 id="welcome"></h1><p id="scope"></p></div><div class="actions"><button id="refresh" class="secondary">Refresh</button><button id="logout" class="secondary">Sign out</button></div></div>
+<nav id="nav" aria-label="Workspace views"></nav><section id="content" aria-live="polite"></section>
+</section>
+</main><footer>MEPG VesselWatch · Research prototype · Phase 1.4</footer>
+</body></html>

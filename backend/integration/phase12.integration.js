@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {randomUUID,randomBytes} from 'node:crypto';
 import pg from 'pg';
 import {hashPassword,tokenHash} from '../src/passwords.js';
+import {privileged,readKey,newSecret,seal,totp} from '../src/mfa.js';
 
 const ownerUrl=process.env.MIGRATION_DATABASE_URL;
 const runtimeUrl=process.env.DATABASE_URL;
@@ -47,14 +48,17 @@ const station=await makeUser('station',stationA);
 const inspector=await makeUser('inspector',stationA);
 const recordsB=await makeUser('records',stationB);
 const technical=await makeUser('technical',null);
-const login=async(u,p=password)=> (await expect(200,'POST','/api/auth/login',{username:u.username,password:p})).token;
+const secrets=new Map(),key=readKey(process.env.VW_MFA_KEY);
+for(const u of [regional,station,technical]){const secret=newSecret();secrets.set(u.id,secret);await owner.query('UPDATE vw.users SET mfa_secret_cipher=$1 WHERE id=$2',[seal(secret,key,u.id),u.id]);}
+const loginPayload=(u,p=password)=>({username:u.username,password:p,...(secrets.has(u.id)?{otp:totp(secrets.get(u.id),Math.floor(Date.now()/30000))}:{})});
+const login=async(u,p=password)=> (await expect(200,'POST','/api/auth/login',loginPayload(u,p))).token;
 let vessel;
 let aToken;
-test('schema: 36 tables, three tracked migrations and deny-by-default grants',async()=>{
+test('schema: 36 tables, four tracked migrations and deny-by-default grants',async()=>{
  const names=(await owner.query("SELECT tablename FROM pg_tables WHERE schemaname='vw'")).rows.map(r=>r.tablename);
  assert.equal(names.length,36);
  for(const n of ['vessels','qr_identifiers','inspections','document_versions','notifications','sync_requests','evidence_links','monthly_reports','list_reviews','users','audit_events','restore_tests','announcements','internal_messages'])assert.ok(names.includes(n),n);
- assert.equal(Number((await one(owner,'SELECT count(*) AS n FROM public.vesselwatch_migrations')).n),3);
+ assert.equal(Number((await one(owner,'SELECT count(*) AS n FROM public.vesselwatch_migrations')).n),4);
  assert.equal(Number((await one(owner,'SELECT count(*) AS n FROM vw.stations')).n),9);
  const role=await one(runtime,"SELECT current_user AS who, rolsuper FROM pg_roles WHERE rolname=current_user");
  assert.equal(role.who,'vesselwatch_app');assert.equal(role.rolsuper,false);
@@ -179,5 +183,24 @@ test('hardening: persistent per-account failed login throttle and reset recovery
  assert.equal((await one(owner,'SELECT failed_login_count FROM vw.users WHERE id=$1',[recordsB.id])).failed_login_count,1);
  await login(recordsB);
  assert.equal((await one(owner,'SELECT failed_login_count FROM vw.users WHERE id=$1',[recordsB.id])).failed_login_count,0);
+});
+test('MFA, browser cookie, origin checks and scoped dashboard',async()=>{
+ const u=await makeUser('station',stationB);
+ await expect(401,'POST','/api/auth/login',{username:u.username,password});
+ const secret=newSecret();await owner.query('UPDATE vw.users SET mfa_secret_cipher=$1 WHERE id=$2',[seal(secret,key,u.id),u.id]);
+ const payload={username:u.username,password,otp:totp(secret,Math.floor(Date.now()/30000))};
+ const headers={'Content-Type':'application/json','Origin':'http://127.0.0.1:3000','X-VW-Browser':'1'};
+ const request=(path,opts={})=>fetch(api+path,{...opts,signal:AbortSignal.timeout(20000)});
+ let res=await request('/api/browser/login',{method:'POST',headers:{...headers,Origin:'https://example.invalid'},body:JSON.stringify(payload)});assert.equal(res.status,403);
+ res=await request('/api/browser/login',{method:'POST',headers,body:JSON.stringify(payload)});assert.equal(res.status,200);
+ const data=await res.json();assert.equal(data.token,undefined);assert.equal(data.user.role,'station');
+ const set=res.headers.get('set-cookie');assert.match(set,/HttpOnly/i);assert.match(set,/SameSite=Strict/i);
+ const cookie=set.split(';')[0];
+ res=await request('/api/dashboard',{headers:{Cookie:cookie}});assert.equal(res.status,200);const dash=await res.json();assert.equal(dash.stations.length,1);assert.equal(dash.stations[0].id,stationB);assert.equal(dash.capabilities.registry,true);
+ await expect(401,'POST','/api/auth/login',payload);
+ res=await request('/api/auth/logout',{method:'POST',headers:{Cookie:cookie,Origin:'https://example.invalid','X-VW-Browser':'1'}});assert.equal(res.status,403);
+ res=await request('/api/auth/logout',{method:'POST',headers:{...headers,Cookie:cookie}});assert.equal(res.status,200);assert.match(res.headers.get('set-cookie'),/Expires=/i);
+ res=await request('/api/dashboard',{headers:{Cookie:cookie}});assert.equal(res.status,401);
+ const page=await request('/workspace/');assert.equal(page.status,200);assert.match(await page.text(),/VesselWatch/);
 });
 test.after(async()=>{await owner.end();await runtime.end();});

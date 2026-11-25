@@ -22,9 +22,11 @@ jobs:
           umask 077
           owner="$(openssl rand -hex 24)"
           runtime="$(openssl rand -hex 24)"
+          mfa="$(openssl rand -hex 32)"
+          echo "::add-mask::$mfa"
           echo "::add-mask::$owner"
           echo "::add-mask::$runtime"
-          printf 'VW_DB_OWNER_PASSWORD=%s\nVW_DB_APP_PASSWORD=%s\n' "$owner" "$runtime" > .env.compose
+          printf 'VW_DB_OWNER_PASSWORD=%s\nVW_DB_APP_PASSWORD=%s\nVW_MFA_KEY=%s\n' "$owner" "$runtime" "$mfa" > .env.compose
       - name: Start disposable database and API
         run: docker compose -p vw-ci --env-file .env.compose --profile test up -d --build api
       - name: Execute unit and PostgreSQL integration tests

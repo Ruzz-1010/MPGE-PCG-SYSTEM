@@ -5,7 +5,7 @@ GRANT USAGE ON SCHEMA vw TO vesselwatch_app;
 GRANT SELECT ON vw.stations TO vesselwatch_app;
 REVOKE UPDATE ON vw.users FROM vesselwatch_app;
 GRANT SELECT, INSERT ON vw.users TO vesselwatch_app;
-GRANT UPDATE (password_hash, active, must_change_password, failed_login_count, login_blocked_until) ON vw.users TO vesselwatch_app;
+GRANT UPDATE (password_hash, active, must_change_password, failed_login_count, login_blocked_until, mfa_last_step) ON vw.users TO vesselwatch_app;
 GRANT SELECT, INSERT, DELETE ON vw.sessions TO vesselwatch_app;
 GRANT UPDATE (last_seen_at) ON vw.sessions TO vesselwatch_app;
 REVOKE UPDATE ON vw.vessels FROM vesselwatch_app;
