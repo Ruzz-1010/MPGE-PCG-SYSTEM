@@ -1,0 +1,63 @@
+# Local thesis demo / disposable integration environment only.
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: vw_owner
+      POSTGRES_DB: vesselwatch_demo
+      POSTGRES_PASSWORD: ${VW_DB_OWNER_PASSWORD:?Generate a URL-safe hex owner password}
+      VW_DB_APP_PASSWORD: ${VW_DB_APP_PASSWORD:?Generate a separate URL-safe hex runtime password}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/init-runtime.sh:/docker-entrypoint-initdb.d/01-runtime.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vw_owner -d vesselwatch_demo -h 127.0.0.1"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+    networks: [internal]
+  migrate:
+    build: .
+    environment:
+      MIGRATION_DATABASE_URL: postgresql://vw_owner:${VW_DB_OWNER_PASSWORD:?Required}@db:5432/vesselwatch_demo
+    command: ["sh", "-ec", "npm run migrate && npm run migrate && node scripts/grant-runtime.js"]
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [internal]
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://vesselwatch_app:${VW_DB_APP_PASSWORD:?Required}@db:5432/vesselwatch_demo
+      HOST: 0.0.0.0
+      PORT: 3000
+      TRUST_LOCAL_PROXY: 0
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+    networks: [internal]
+  test:
+    profiles: [test]
+    build: .
+    environment:
+      DATABASE_URL: postgresql://vesselwatch_app:${VW_DB_APP_PASSWORD:?Required}@db:5432/vesselwatch_demo
+      MIGRATION_DATABASE_URL: postgresql://vw_owner:${VW_DB_OWNER_PASSWORD:?Required}@db:5432/vesselwatch_demo
+      API_URL: http://api:3000
+      VW_TEST_ALLOW: "1"
+    command: ["sh", "-ec", "npm test && node --test integration/phase12.integration.js"]
+    depends_on:
+      api:
+        condition: service_healthy
+    networks: [internal]
+networks:
+  internal:
+    internal: true
+volumes:
+  pgdata:

@@ -48,3 +48,7 @@ The current role switcher is a **frontend demonstration only**. In the productio
 3. Add secure authentication, sessions, password hashing, MFA for privileged users, and backend-enforced access control.
 4. Add private validated storage for documents, photos, and inspection evidence.
 5. Implement persistence, version history, exports, notification delivery, and tested backup/restore procedures.
+
+## Phase 1.2 development branch
+
+See [Phase 1.2 setup and test gates](docs/PHASE_1_2.md), [database ERD](docs/ERD_V2.md), [data dictionary](docs/DATA_DICTIONARY_V2.md) and [verification record](docs/PHASE_1_2_TEST_RESULTS.md). The existing dist/ interface remains a static demo. The backend and Docker configuration are separate, local-only development components.
