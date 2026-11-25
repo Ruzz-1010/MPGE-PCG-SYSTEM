@@ -1,0 +1,41 @@
+name: VesselWatch Phase 1.2 integration
+on:
+  push:
+    branches: ['development/phase-1-foundation']
+  pull_request:
+    branches: [main]
+    paths: ['backend/**', '.github/workflows/phase12.yml']
+permissions:
+  contents: read
+jobs:
+  disposable-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate ephemeral local database passwords
+        shell: bash
+        run: |
+          umask 077
+          owner="$(openssl rand -hex 24)"
+          runtime="$(openssl rand -hex 24)"
+          echo "::add-mask::$owner"
+          echo "::add-mask::$runtime"
+          printf 'VW_DB_OWNER_PASSWORD=%s\nVW_DB_APP_PASSWORD=%s\n' "$owner" "$runtime" > .env.compose
+      - name: Start disposable database and API
+        run: docker compose -p vw-ci --env-file .env.compose --profile test up -d --build api
+      - name: Execute unit and PostgreSQL integration tests
+        run: docker compose -p vw-ci --env-file .env.compose --profile test run --rm test
+      - name: Show migration and API diagnostics on failure
+        if: failure()
+        run: docker compose -p vw-ci --env-file .env.compose logs --no-color migrate api
+      - name: Destroy disposable test data
+        if: always()
+        run: |
+          if [ -f .env.compose ]; then
+            docker compose -p vw-ci --env-file .env.compose --profile test down -v
+            rm -f .env.compose
+          fi
