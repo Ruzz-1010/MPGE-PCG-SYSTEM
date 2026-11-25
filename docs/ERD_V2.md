@@ -22,12 +22,15 @@ erDiagram
         boolean active
         boolean must_change_password
         timestamptz created_at
+        integer failed_login_count
+        timestamptz login_blocked_until
     }
     sessions {
         text token_hash PK
         uuid user_id FK
         timestamptz created_at
         timestamptz expires_at
+        timestamptz last_seen_at
     }
     vessels {
         uuid id PK

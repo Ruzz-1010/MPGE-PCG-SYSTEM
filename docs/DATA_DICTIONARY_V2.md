@@ -595,6 +595,16 @@ Table rules:
 - `CHECK(acknowledged_at IS NULL OR (read_at IS NOT NULL AND acknowledged_at>=read_at))`
 
 
+## Phase 1.3 authentication columns (migration 003)
+
+| Table | Field | Type and constraints | Purpose |
+|---|---|---|---|
+| users | failed_login_count | integer NOT NULL DEFAULT 0; 0–5 | Consecutive eligible failed login attempts |
+| users | login_blocked_until | timestamptz nullable | Temporary account throttle |
+| sessions | last_seen_at | timestamptz NOT NULL DEFAULT now() | Last authenticated activity; idle expiration |
+
+Index: sessions_idle (user_id,last_seen_at). All pre-003 sessions are invalidated when the migration is applied.
+
 ## Indexes and lifecycle
 
 See 001 and 002 for normalized registration uniqueness, QR active uniqueness, evidence and notification deduplication, report and lookup indexes. No deletion cascades on operational history; existing session cascade is intentional. Date/time zone and report counting rules require agency confirmation. File contents remain outside the database. No actual SMS/clearance/blacklist action or backup executes merely by inserting rows.

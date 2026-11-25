@@ -50,11 +50,11 @@ const technical=await makeUser('technical',null);
 const login=async(u,p=password)=> (await expect(200,'POST','/api/auth/login',{username:u.username,password:p})).token;
 let vessel;
 let aToken;
-test('schema: 36 tables, two immutable tracked migrations and deny-by-default grants',async()=>{
+test('schema: 36 tables, three tracked migrations and deny-by-default grants',async()=>{
  const names=(await owner.query("SELECT tablename FROM pg_tables WHERE schemaname='vw'")).rows.map(r=>r.tablename);
  assert.equal(names.length,36);
  for(const n of ['vessels','qr_identifiers','inspections','document_versions','notifications','sync_requests','evidence_links','monthly_reports','list_reviews','users','audit_events','restore_tests','announcements','internal_messages'])assert.ok(names.includes(n),n);
- assert.equal(Number((await one(owner,'SELECT count(*) AS n FROM public.vesselwatch_migrations')).n),2);
+ assert.equal(Number((await one(owner,'SELECT count(*) AS n FROM public.vesselwatch_migrations')).n),3);
  assert.equal(Number((await one(owner,'SELECT count(*) AS n FROM vw.stations')).n),9);
  const role=await one(runtime,"SELECT current_user AS who, rolsuper FROM pg_roles WHERE rolname=current_user");
  assert.equal(role.who,'vesselwatch_app');assert.equal(role.rolsuper,false);
@@ -145,5 +145,39 @@ test('feature constraints: QR, checklist, documents, notification dedup, sync, g
   await sqlReject(c,'23505','INSERT INTO vw.message_recipients(message_id,recipient_id) VALUES($1,$2)',[msg.id,inspector.id]);
   await sqlReject(c,'23514',"INSERT INTO vw.announcements(publisher_id,title,body,audience,state) VALUES($1,'Demo','Test','all_stations','published')",[station.id]);
  }finally{await c.query('ROLLBACK');c.release();}
+});
+test('hardening: inactive station, idle timeout, bounded sessions, input and DB permission controls',async()=>{
+ await assert.rejects(()=>runtime.query("UPDATE vw.users SET role='regional' WHERE false"),e=>e.code==='42501');
+ await assert.rejects(()=>runtime.query("UPDATE vw.users SET station_id=NULL WHERE false"),e=>e.code==='42501');
+ await assert.rejects(()=>runtime.query("UPDATE vw.vessels SET station_id=station_id WHERE false"),e=>e.code==='42501');
+ await assert.rejects(()=>runtime.query("UPDATE vw.vessels SET created_by=created_by WHERE false"),e=>e.code==='42501');
+ await expect(400,'PATCH','/api/users/'+inspector.id,{role:'regional',active:true},aToken);
+ await expect(400,'POST','/api/vessels',{name:'Bad '+tag,officialRegistration:'X',ownerOperator:'Demo',vesselType:'Demo',createdBy:regional.id},aToken);
+ await expect(400,'GET','/api/vessels?page=1&page=2',undefined,aToken);
+ const old=await login(inspector);
+ await owner.query("UPDATE vw.sessions SET last_seen_at=now()-interval '31 minutes' WHERE token_hash=$1",[tokenHash(old)]);
+ await expect(401,'GET','/api/auth/me',undefined,old);
+ const fresh=await login(inspector);
+ await owner.query('UPDATE vw.stations SET active=false WHERE id=$1',[stationA]);
+ try{
+  await expect(403,'GET','/api/auth/me',undefined,fresh);
+  await expect(401,'POST','/api/auth/login',{username:inspector.username,password});
+ }finally{await owner.query('UPDATE vw.stations SET active=true WHERE id=$1',[stationA]);}
+ await expect(401,'GET','/api/auth/me',undefined,fresh);
+ const tokens=[];for(let i=0;i<6;i++)tokens.push(await login(inspector));
+ await expect(401,'GET','/api/auth/me',undefined,tokens[0]);
+ await expect(200,'GET','/api/auth/me',undefined,tokens[5]);
+ assert.equal(Number((await one(owner,'SELECT count(*) n FROM vw.sessions WHERE user_id=$1',[inspector.id])).n),5);
+});
+test('hardening: persistent per-account failed login throttle and reset recovery',async()=>{
+ for(let i=0;i<5;i++)await expect(401,'POST','/api/auth/login',{username:recordsB.username,password:'wrong'});
+ const locked=await one(owner,'SELECT failed_login_count,login_blocked_until>now() AS blocked FROM vw.users WHERE id=$1',[recordsB.id]);
+ assert.equal(locked.failed_login_count,5);assert.equal(locked.blocked,true);
+ await expect(401,'POST','/api/auth/login',{username:recordsB.username,password});
+ await owner.query("UPDATE vw.users SET login_blocked_until=now()-interval '1 second' WHERE id=$1",[recordsB.id]);
+ await expect(401,'POST','/api/auth/login',{username:recordsB.username,password:'wrong'});
+ assert.equal((await one(owner,'SELECT failed_login_count FROM vw.users WHERE id=$1',[recordsB.id])).failed_login_count,1);
+ await login(recordsB);
+ assert.equal((await one(owner,'SELECT failed_login_count FROM vw.users WHERE id=$1',[recordsB.id])).failed_login_count,0);
 });
 test.after(async()=>{await owner.end();await runtime.end();});
