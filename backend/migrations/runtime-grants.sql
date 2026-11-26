@@ -15,3 +15,13 @@ GRANT SELECT, INSERT ON vw.vessel_versions TO vesselwatch_app;
 GRANT SELECT, INSERT ON vw.audit_events TO vesselwatch_app;
 GRANT USAGE, SELECT ON SEQUENCE vw.audit_events_id_seq TO vesselwatch_app;
 -- No runtime UPDATE/DELETE grants on audit events or historical snapshots.
+
+-- Phase 2: QR lifecycle and narrowly scoped read-only linked summaries (scope enforced by API).
+GRANT SELECT, INSERT ON vw.qr_identifiers TO vesselwatch_app;
+GRANT UPDATE (revoked_at,revoked_by) ON vw.qr_identifiers TO vesselwatch_app;
+GRANT SELECT ON vw.documents,vw.document_types TO vesselwatch_app;
+GRANT SELECT (id,document_id,version,number,expiry_date,expiry_kind) ON vw.document_versions TO vesselwatch_app;
+GRANT SELECT (document_version_id,status,created_at,id) ON vw.document_reviews TO vesselwatch_app;
+GRANT SELECT (id,vessel_id,station_id,inspector_id,inspected_at) ON vw.inspections TO vesselwatch_app;
+GRANT SELECT (id,inspection_id,version,workflow_state) ON vw.inspection_versions TO vesselwatch_app;
+GRANT SELECT (id,inspection_version_id,status,is_simulated,created_at) ON vw.clearance_events TO vesselwatch_app;

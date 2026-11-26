@@ -54,16 +54,17 @@ const loginPayload=(u,p=password)=>({username:u.username,password:p,...(secrets.
 const login=async(u,p=password)=> (await expect(200,'POST','/api/auth/login',loginPayload(u,p))).token;
 let vessel;
 let aToken;
-test('schema: 36 tables, four tracked migrations and deny-by-default grants',async()=>{
+test('schema: 36 tables, five tracked migrations and deny-by-default grants',async()=>{
  const names=(await owner.query("SELECT tablename FROM pg_tables WHERE schemaname='vw'")).rows.map(r=>r.tablename);
  assert.equal(names.length,36);
  for(const n of ['vessels','qr_identifiers','inspections','document_versions','notifications','sync_requests','evidence_links','monthly_reports','list_reviews','users','audit_events','restore_tests','announcements','internal_messages'])assert.ok(names.includes(n),n);
- assert.equal(Number((await one(owner,'SELECT count(*) AS n FROM public.vesselwatch_migrations')).n),4);
+ assert.equal(Number((await one(owner,'SELECT count(*) AS n FROM public.vesselwatch_migrations')).n),5);
  assert.equal(Number((await one(owner,'SELECT count(*) AS n FROM vw.stations')).n),9);
  const role=await one(runtime,"SELECT current_user AS who, rolsuper FROM pg_roles WHERE rolname=current_user");
  assert.equal(role.who,'vesselwatch_app');assert.equal(role.rolsuper,false);
  await assert.rejects(()=>runtime.query('SELECT * FROM vw.owner_contacts'),e=>e.code==='42501');
- await assert.rejects(()=>runtime.query('SELECT * FROM vw.clearance_events'),e=>e.code==='42501');
+ await assert.rejects(()=>runtime.query('SELECT reason FROM vw.clearance_events'),e=>e.code==='42501');
+ await assert.rejects(()=>runtime.query("UPDATE vw.clearance_events SET status='hold' WHERE false"),e=>e.code==='42501');
  await assert.rejects(()=>runtime.query("UPDATE vw.audit_events SET action='bad' WHERE false"),e=>e.code==='42501');
  await assert.rejects(()=>runtime.query('DELETE FROM vw.vessel_versions WHERE false'),e=>e.code==='42501');
 });
@@ -111,7 +112,7 @@ test('feature constraints: QR, checklist, documents, notification dedup, sync, g
  const insert=async(s,p=[])=>one(c,s,p);
  try{
   await c.query('BEGIN');
-  const qr=await insert('INSERT INTO vw.qr_identifiers(vessel_id,issued_by) VALUES($1,$2) RETURNING id',[vessel.id,station.id]);
+  const qr=await insert('SELECT id FROM vw.qr_identifiers WHERE vessel_id=$1 AND revoked_at IS NULL',[vessel.id]);assert.ok(qr);
   await sqlReject(c,'23505','INSERT INTO vw.qr_identifiers(vessel_id,issued_by) VALUES($1,$2)',[vessel.id,station.id]);
   await c.query('UPDATE vw.qr_identifiers SET revoked_at=now(),revoked_by=$2 WHERE id=$1',[qr.id,station.id]);
   await c.query('INSERT INTO vw.qr_identifiers(vessel_id,issued_by) VALUES($1,$2)',[vessel.id,station.id]);
@@ -202,5 +203,53 @@ test('MFA, browser cookie, origin checks and scoped dashboard',async()=>{
  res=await request('/api/auth/logout',{method:'POST',headers:{...headers,Cookie:cookie}});assert.equal(res.status,200);assert.match(res.headers.get('set-cookie'),/Expires=/i);
  res=await request('/api/dashboard',{headers:{Cookie:cookie}});assert.equal(res.status,401);
  const page=await request('/workspace/');assert.equal(page.status,200);assert.match(await page.text(),/VesselWatch/);
+});
+test('Phase 2: scoped registry pagination, history, QR lifecycle and linked views',async()=>{
+ const bToken=await login(recordsB);
+ const iToken=await login(inspector);
+ const result=await expect(200,'GET','/api/vessels?format=page&q='+tag+'&status=active&type=Demo',undefined,aToken);
+ assert.ok(result.rows.some(x=>x.id===vessel.id));assert.equal(result.pageSize,50);assert.ok(result.total>=1);
+ const empty=await expect(200,'GET','/api/vessels?format=page&q='+tag+'&page=2',undefined,aToken);assert.equal(empty.rows.length,0);
+ const history=await expect(200,'GET','/api/vessels/'+vessel.id+'/history',undefined,aToken);assert.equal(history.total,2);assert.equal(history.rows[0].version,2);
+ await expect(404,'GET','/api/vessels/'+vessel.id+'/history',undefined,bToken);
+ const qr=(await expect(200,'GET','/api/vessels/'+vessel.id+'/qr',undefined,aToken)).qr;
+ assert.match(qr.payload,/^VW1:[a-f0-9-]{36}$/);assert.match(qr.image,/^data:image\/png;base64,/);
+ await expect(401,'POST','/api/qr/resolve',{payload:qr.payload});
+ await expect(404,'POST','/api/qr/resolve',{payload:qr.payload},bToken);
+ await expect(404,'POST','/api/qr/resolve',{payload:'VW1:'+randomUUID()},iToken);
+ await expect(404,'POST','/api/qr/resolve',{payload:'https://example.invalid'},iToken);
+ // Synthetic linked records are written only by the disposable fixture owner.
+ const type=await one(owner,'INSERT INTO vw.document_types(code,name) VALUES($1,$2) RETURNING id',['P2-'+tag,'Synthetic certificate']);
+ const doc=await one(owner,'INSERT INTO vw.documents(vessel_id,type_id,required,created_by) VALUES($1,$2,true,$3) RETURNING id',[vessel.id,type.id,station.id]);
+ const dv=await one(owner,"INSERT INTO vw.document_versions(document_id,version,number,issuer,expiry_date,expiry_kind,recorded_by) VALUES($1,1,'DEMO-DOC','Demo',(now() AT TIME ZONE 'Asia/Manila')::date-1,'dated',$2) RETURNING id",[doc.id,station.id]);
+ await owner.query("INSERT INTO vw.document_reviews(document_version_id,reviewed_by,status) VALUES($1,$2,'verified')",[dv.id,station.id]);
+ const tpl=await one(owner,'INSERT INTO vw.checklist_templates(name,version,created_by) VALUES($1,1,$2) RETURNING id',['P2 '+tag,station.id]);
+ const inspection=await one(owner,'INSERT INTO vw.inspections(vessel_id,station_id,inspector_id,template_id,inspected_at) VALUES($1,$2,$3,$4,now()) RETURNING id',[vessel.id,stationA,inspector.id,tpl.id]);
+ const revision=await one(owner,"INSERT INTO vw.inspection_versions(inspection_id,template_id,version,workflow_state,changed_by) VALUES($1,$2,1,'reviewed',$3) RETURNING id",[inspection.id,tpl.id,station.id]);
+ await owner.query("INSERT INTO vw.clearance_events(inspection_version_id,decided_by,status,reason) VALUES($1,$2,'hold','Synthetic test only')",[revision.id,station.id]);
+ const remote=await one(owner,'INSERT INTO vw.inspections(vessel_id,station_id,inspector_id,template_id,inspected_at) VALUES($1,$2,$3,$4,now()) RETURNING id',[vessel.id,stationB,inspector.id,tpl.id]);
+ await owner.query("INSERT INTO vw.inspection_versions(inspection_id,template_id,version,workflow_state,changed_by) VALUES($1,$2,1,'reviewed',$3)",[remote.id,tpl.id,station.id]);
+ const scan=await expect(200,'POST','/api/qr/resolve',{payload:qr.payload},iToken);assert.equal(scan.vessel.id,vessel.id);
+ assert.equal(scan.linked.documents[0].date_status,'expired');assert.equal(scan.linked.documents[0].verification,'verified');
+ assert.equal(scan.linked.inspections.length,1);assert.equal(scan.linked.inspections[0].id,inspection.id);assert.equal(scan.linked.inspections[0].clearance_status,'hold');assert.equal(scan.linked.inspections[0].is_simulated,true);
+ await expect(404,'GET','/api/vessels/'+vessel.id+'/linked',undefined,bToken);
+ await expect(403,'POST','/api/vessels/'+vessel.id+'/qr/replace',{reason:'test'},iToken);
+ const newQr=(await expect(200,'POST','/api/vessels/'+vessel.id+'/qr/replace',{reason:'Synthetic replacement'},aToken)).qr;
+ assert.notEqual(newQr.payload,qr.payload);await expect(404,'POST','/api/qr/resolve',{payload:qr.payload},iToken);
+ await expect(200,'POST','/api/qr/resolve',{payload:newQr.payload},iToken);
+ await expect(200,'POST','/api/vessels/'+vessel.id+'/qr/revoke',{reason:'Synthetic revocation'},aToken);
+ await expect(404,'POST','/api/qr/resolve',{payload:newQr.payload},iToken);
+ assert.equal((await expect(200,'GET','/api/vessels/'+vessel.id+'/qr',undefined,aToken)).qr,null);
+ const replacement=(await expect(200,'POST','/api/vessels/'+vessel.id+'/qr/replace',{reason:'Synthetic reissue'},aToken)).qr;
+ const current=await expect(200,'GET','/api/vessels/'+vessel.id,undefined,aToken);
+ const edit={name:current.name,officialRegistration:current.official_registration,ownerOperator:current.owner_operator,vesselType:current.vessel_type,version:current.version,profileStatus:'inactive'};
+ await expect(200,'PUT','/api/vessels/'+vessel.id,edit,aToken);
+ await expect(404,'POST','/api/qr/resolve',{payload:replacement.payload},iToken);
+ await expect(409,'POST','/api/vessels/'+vessel.id+'/qr/replace',{reason:'Inactive'},aToken);
+ await expect(200,'PUT','/api/vessels/'+vessel.id,{...edit,version:current.version+1,profileStatus:'active'},aToken);
+ assert.ok((await expect(200,'GET','/api/vessels/'+vessel.id+'/qr',undefined,aToken)).qr);
+ assert.ok((await expect(200,'GET','/api/vessels/'+vessel.id+'/linked',undefined,aToken)).documents);
+ await assert.rejects(()=>runtime.query('DELETE FROM vw.qr_identifiers WHERE false'),e=>e.code==='42501');
+ const vendor=await fetch(api+'/workspace/vendor/jsQR.js');assert.equal(vendor.status,200);assert.match(await vendor.text(),/jsQR/);
 });
 test.after(async()=>{await owner.end();await runtime.end();});

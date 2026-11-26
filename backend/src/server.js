@@ -2,6 +2,9 @@ import express from 'express';
 import helmet from 'helmet';
 import {rateLimit} from 'express-rate-limit';
 import {randomBytes} from 'node:crypto';
+import QRCode from 'qrcode';
+import {createRequire} from 'node:module';
+const require=createRequire(import.meta.url);
 import {fileURLToPath} from 'node:url';
 import {privileged,readKey,unseal,verifyTotp} from './mfa.js';
 import {pool,tx,audit} from './db.js';
@@ -17,7 +20,8 @@ if(localDemo&&browserOrigin!=='http://127.0.0.1:3000')throw Error('HTTP demo mus
 if(!localDemo&&!browserOrigin.startsWith('https://'))throw Error('HTTPS browser origin required');
 const cookieName=localDemo?'vw_demo_session':'__Host-vw_session';
 const cookieOptions={httpOnly:true,secure:!localDemo,sameSite:'strict',path:'/'};
-app.use(helmet({strictTransportSecurity:localDemo?false:undefined,contentSecurityPolicy:{directives:{upgradeInsecureRequests:localDemo?null:[]}}}));
+app.use(helmet({strictTransportSecurity:localDemo?false:undefined,contentSecurityPolicy:{directives:{upgradeInsecureRequests:localDemo?null:[],imgSrc:["'self'","data:"]}}}));
+app.use((_q,r,n)=>{r.set('Permissions-Policy','camera=(self), microphone=(), geolocation=()');n();});
 const browserToken=q=>{
  const values=(q.get('cookie')??'').split(';').map(s=>s.trim()).filter(s=>s.startsWith(cookieName+'='));
  if(values.length!==1)return null;
@@ -163,8 +167,16 @@ app.get('/api/vessels',protectedRoute('vessels.list',async(c,u,q)=>{
  const search=q.query.q===undefined?'':typeof q.query.q==='string'&&q.query.q.length<=180&&!/[\u0000-\u001f\u007f]/u.test(q.query.q)?q.query.q:fail(400,'Invalid search');
  const station=q.query.stationId===undefined?null:uuid(q.query.stationId);
  if(station&&!stationScope(u,station))fail(403,'Forbidden');
- const rows=(await c.query('SELECT '+publicVessel+' FROM vw.vessels WHERE ($1::boolean OR station_id=$2::uuid) AND ($3::uuid IS NULL OR station_id=$3) AND (strpos(lower(name),lower($4))>0 OR strpos(lower(official_registration),lower($4))>0 OR strpos(lower(internal_id),lower($4))>0 OR $4=\'\') ORDER BY name,id LIMIT 50 OFFSET $5',[u.role==='regional',u.station_id,station,search,page(q.query.page)])).rows;
- await audit(c,u,'vessels.list','vessel');return ok(rows);
+ const status=q.query.status??null;
+ if(status!==null&&!['active','inactive'].includes(status))fail(400,'Invalid profile status');
+ const type=q.query.type===undefined?null:text(q.query.type,100);
+ const format=q.query.format??'array';if(!['array','page'].includes(format))fail(400,'Invalid format');
+ const offset=page(q.query.page);
+ const where=" FROM vw.vessels WHERE ($1::boolean OR station_id=$2::uuid) AND ($3::uuid IS NULL OR station_id=$3) AND (strpos(lower(name),lower($4))>0 OR strpos(lower(official_registration),lower($4))>0 OR strpos(lower(internal_id),lower($4))>0 OR $4='') AND ($5::text IS NULL OR profile_status=$5) AND ($6::text IS NULL OR lower(vessel_type)=lower($6))";
+ const values=[u.role==='regional',u.station_id,station,search,status,type];
+ const rows=(await c.query('SELECT '+publicVessel+where+' ORDER BY lower(name),id LIMIT 50 OFFSET $7',[...values,offset])).rows;
+ const total=format==='page'?(await c.query('SELECT count(*)::int AS total'+where,values)).rows[0].total:null;
+ await audit(c,u,'vessels.list','vessel');return ok(format==='page'?{rows,total,page:offset/50+1,pageSize:50}:rows);
 }));
 app.get('/api/vessels/:id',protectedRoute('vessels.read',async(c,u,q)=>{
  if(!canReadVessels(u))fail(403,'Forbidden');
@@ -191,7 +203,9 @@ app.post('/api/vessels',protectedRoute('vessels.create',async(c,u,q)=>{
  await checkDuplicate(c,u,v[0],v[1],null);
  const row=(await c.query('INSERT INTO vw.vessels(name,official_registration,owner_operator,vessel_type,station_id,created_by,updated_by) VALUES($1,$2,$3,$4,$5,$6,$6) ON CONFLICT DO NOTHING RETURNING '+publicVessel,[...v,u.station_id,u.id])).rows[0];
  if(!row)fail(409,'Potential duplicate requires authorized review');
- await snapshot(c,row,u);await audit(c,u,'vessels.create','vessel',row.id);return {status:201,data:row};
+ await snapshot(c,row,u);
+ await c.query('INSERT INTO vw.qr_identifiers(vessel_id,issued_by) VALUES($1,$2)',[row.id,u.id]);
+ await audit(c,u,'qr.issue','vessel',row.id);await audit(c,u,'vessels.create','vessel',row.id);return {status:201,data:row};
 }));
 app.put('/api/vessels/:id',protectedRoute('vessels.update',async(c,u,q)=>{
  if(!canWriteVessels(u))fail(403,'Forbidden');
@@ -206,13 +220,88 @@ app.put('/api/vessels/:id',protectedRoute('vessels.update',async(c,u,q)=>{
  let row;
  try{row=(await c.query('UPDATE vw.vessels SET name=$1,official_registration=$2,owner_operator=$3,vessel_type=$4,profile_status=$5,version=version+1,updated_at=now(),updated_by=$6 WHERE id=$7 RETURNING '+publicVessel,[...v,b.profileStatus,u.id,id])).rows[0];}
  catch(e){if(e.code==='23505')fail(409,'Potential duplicate requires authorized review');throw e;}
- await snapshot(c,row,u);await audit(c,u,'vessels.update','vessel',id,'success',{version:row.version});return ok(row);
+ await snapshot(c,row,u);
+ if(row.profile_status==='inactive'){const revoked=await c.query('UPDATE vw.qr_identifiers SET revoked_at=clock_timestamp(),revoked_by=$2 WHERE vessel_id=$1 AND revoked_at IS NULL',[id,u.id]);if(revoked.rowCount)await audit(c,u,'qr.revoke','vessel',id,'success',{reason:'profile_inactive'});}
+ else if(current.profile_status==='inactive'){await c.query('INSERT INTO vw.qr_identifiers(vessel_id,issued_by) VALUES($1,$2)',[id,u.id]);await audit(c,u,'qr.issue','vessel',id);}
+ await audit(c,u,'vessels.update','vessel',id,'success',{version:row.version});return ok(row);
+}));
+// All QR/profile lookups require an authenticated, scoped account. QR payloads are opaque,
+ // not bearer credentials. Never return owner data to unauthenticated scans.
+async function scopedVessel(c,u,id,write=false){
+ if(write?!canWriteVessels(u):!canReadVessels(u))fail(403,'Forbidden');
+ const row=(await c.query('SELECT '+publicVessel+' FROM vw.vessels WHERE id=$1 AND ($2::boolean OR station_id=$3::uuid)'+(write?' FOR UPDATE':''),[id,u.role==='regional',u.station_id])).rows[0];
+ if(!row)fail(404,'Vessel not available');return row;
+}
+async function linkedRecords(c,u,vessel){
+ const docs=(await c.query(`SELECT d.id,dt.name AS type,d.required,dv.number,dv.expiry_date::text,dv.expiry_kind,
+  COALESCE(dr.status,'needs_review') AS verification,
+  CASE WHEN dv.id IS NULL THEN 'unknown' WHEN dv.expiry_kind='not_applicable' THEN 'not_applicable' WHEN dv.expiry_kind='unknown' THEN 'unknown' WHEN dv.expiry_date < (clock_timestamp() AT TIME ZONE 'Asia/Manila')::date THEN 'expired' WHEN dv.expiry_date <= (clock_timestamp() AT TIME ZONE 'Asia/Manila')::date+30 THEN 'expiring_soon' ELSE 'valid_by_date' END AS date_status
+ FROM vw.documents d JOIN vw.document_types dt ON dt.id=d.type_id
+ LEFT JOIN LATERAL (SELECT id,number,expiry_date,expiry_kind FROM vw.document_versions WHERE document_id=d.id ORDER BY version DESC LIMIT 1) dv ON true
+ LEFT JOIN LATERAL (SELECT status FROM vw.document_reviews WHERE document_version_id=dv.id ORDER BY created_at DESC,id DESC LIMIT 1) dr ON true
+ WHERE d.vessel_id=$1 ORDER BY dt.name,d.id LIMIT 50`,[vessel.id])).rows;
+ const inspections=(await c.query(`SELECT i.id,i.inspected_at,i.station_id,iv.workflow_state,iv.version,
+  ce.status AS clearance_status,ce.is_simulated
+ FROM vw.inspections i
+ JOIN LATERAL (SELECT id,workflow_state,version FROM vw.inspection_versions WHERE inspection_id=i.id ORDER BY version DESC LIMIT 1) iv ON true
+ LEFT JOIN LATERAL (SELECT status,is_simulated FROM vw.clearance_events WHERE inspection_version_id=iv.id ORDER BY created_at DESC,id DESC LIMIT 1) ce ON true
+ WHERE i.vessel_id=$1 AND ($2::boolean OR i.station_id=$3::uuid)
+ AND (iv.workflow_state='reviewed' OR ($4::text='inspector' AND i.inspector_id=$5::uuid) OR $4 IN ('regional','station'))
+ ORDER BY i.inspected_at DESC,i.id LIMIT 50`,[vessel.id,u.role==='regional',u.station_id,u.role,u.id])).rows;
+ return {documents:docs,inspections,limit:50,clearanceLabel:'Recorded simulation only; no legal clearance'};
+}
+app.get('/api/vessels/:id/linked',protectedRoute('vessels.linked',async(c,u,q)=>{
+ const v=await scopedVessel(c,u,uuid(q.params.id));const records=await linkedRecords(c,u,v);
+ await audit(c,u,'vessels.linked','vessel',v.id);return ok(records);
+}));
+app.get('/api/vessels/:id/history',protectedRoute('vessels.history',async(c,u,q)=>{
+ const v=await scopedVessel(c,u,uuid(q.params.id)),offset=page(q.query.page);
+ const rows=(await c.query('SELECT version,snapshot,changed_by,recorded_at FROM vw.vessel_versions WHERE vessel_id=$1 ORDER BY version DESC LIMIT 50 OFFSET $2',[v.id,offset])).rows;
+ const total=(await c.query('SELECT count(*)::int AS total FROM vw.vessel_versions WHERE vessel_id=$1',[v.id])).rows[0].total;
+ await audit(c,u,'vessels.history','vessel',v.id);return ok({rows,total,page:offset/50+1,pageSize:50});
+}));
+const qrPayload=token=>'VW1:'+token;
+async function qrRecord(c,id){
+ const row=(await c.query('SELECT id,token,created_at FROM vw.qr_identifiers WHERE vessel_id=$1 AND revoked_at IS NULL',[id])).rows[0];
+ if(!row)return null;
+ const payload=qrPayload(row.token);
+ return {id:row.id,payload,issuedAt:row.created_at,image:await QRCode.toDataURL(payload,{errorCorrectionLevel:'M',width:320,margin:4})};
+}
+app.get('/api/vessels/:id/qr',protectedRoute('qr.read',async(c,u,q)=>{
+ const v=await scopedVessel(c,u,uuid(q.params.id));
+ const qr=v.profile_status==='active'?await qrRecord(c,v.id):null;
+ await audit(c,u,'qr.read','vessel',v.id);return ok({qr});
+}));
+app.post('/api/vessels/:id/qr/replace',protectedRoute('qr.replace',async(c,u,q)=>{
+ const v=await scopedVessel(c,u,uuid(q.params.id),true);
+ const b=body(q,['reason']);const reason=text(b.reason,240);
+ if(v.profile_status!=='active')fail(409,'Inactive vessel cannot receive a QR code');
+ await c.query('UPDATE vw.qr_identifiers SET revoked_at=clock_timestamp(),revoked_by=$2 WHERE vessel_id=$1 AND revoked_at IS NULL',[v.id,u.id]);
+ await c.query('INSERT INTO vw.qr_identifiers(vessel_id,issued_by) VALUES($1,$2)',[v.id,u.id]);
+ const qr=await qrRecord(c,v.id);
+ await audit(c,u,'qr.replace','vessel',v.id,'success',{reason});return ok({qr});
+}));
+app.post('/api/vessels/:id/qr/revoke',protectedRoute('qr.revoke',async(c,u,q)=>{
+ const v=await scopedVessel(c,u,uuid(q.params.id),true);
+ const b=body(q,['reason']);const reason=text(b.reason,240);
+ const r=await c.query('UPDATE vw.qr_identifiers SET revoked_at=clock_timestamp(),revoked_by=$2 WHERE vessel_id=$1 AND revoked_at IS NULL',[v.id,u.id]);
+ if(!r.rowCount)fail(409,'No active QR code');
+ await audit(c,u,'qr.revoke','vessel',v.id,'success',{reason});return ok({qr:null});
+}));
+app.post('/api/qr/resolve',protectedRoute('qr.resolve',async(c,u,q)=>{
+ if(!canReadVessels(u))fail(403,'Forbidden');
+ const b=body(q,['payload']);
+ if(typeof b.payload!=='string'||!b.payload.startsWith('VW1:')||!isUuid(b.payload.slice(4)))fail(404,'QR code not available');
+ const row=(await c.query('SELECT '+publicVessel.split(',').map(x=>'v.'+x).join(',')+' FROM vw.qr_identifiers qr JOIN vw.vessels v ON v.id=qr.vessel_id WHERE qr.token=$1 AND qr.revoked_at IS NULL AND v.profile_status=\'active\' AND ($2::boolean OR v.station_id=$3::uuid)',[b.payload.slice(4),u.role==='regional',u.station_id])).rows[0];
+ if(!row)fail(404,'QR code not available');
+ await audit(c,u,'qr.resolve','vessel',row.id);return ok({vessel:row,linked:await linkedRecords(c,u,row)});
 }));
 app.get('/api/audit',protectedRoute('audit.list',async(c,u,q)=>{
  if(!canReadAudit(u))fail(403,'Forbidden');
  const rows=(await c.query('SELECT id,actor_id,station_id,action,resource_type,resource_id,outcome,detail,recorded_at FROM vw.audit_events ORDER BY recorded_at DESC,id DESC LIMIT 50 OFFSET $1',[page(q.query.page)])).rows;
  await audit(c,u,'audit.list','audit');return ok(rows);
 }));
+app.get('/workspace/vendor/jsQR.js',(_q,r)=>{r.set('Cache-Control','no-store');r.sendFile(require.resolve('jsqr'));});
 app.use('/workspace',express.static(fileURLToPath(new URL('../web/',import.meta.url)),{index:'index.html',maxAge:0,setHeaders:r=>r.set('Cache-Control','no-store')}));
 app.get('/',(_q,r)=>r.redirect('/workspace/'));
 app.use((_q,r)=>r.status(404).json({error:'Not found'}));
