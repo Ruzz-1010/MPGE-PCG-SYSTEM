@@ -1,0 +1,21 @@
+# Phase 3 — Vessel Inspection Management and simulated departure clearance
+
+## Verified baseline
+[Phase 2 CI run 45829590556](https://github.com/Ruzz-1010/MPGE-PCG-SYSTEM/actions/runs/45829590556) for commit 49c0cfcdc960bfce3921210052b41960803a8756 completed successfully. Job logs: 4/4 unit tests and 7/7 integration groups, zero failures/skips. No baseline CI failures found.
+
+## V2.0 requirements traceability
+- FR-03.01–03: inspector creates a draft for an existing active vessel within assigned station; server records inspector, station and inspection timestamp. A versioned fictional checklist supports responses, remarks and findings. Actual approved form is not supplied; fixed demo questions are proposed, not official.
+- FR-03.04: online one-second debounced autosave, serialized requests, explicit Save draft, visible unsaved/saving/server-confirmed/conflict state, navigation warning. Failed saves retain input in the current view; no browser persistence or offline synchronization in this phase. Five-second target not measured.
+- FR-03.05: own draft/returned record → submitted with acknowledgement; Station Admin in same station → reviewed or returned with reason. Inspector corrects and resubmits. Reviewed snapshots are not edited; explicit reopen with reason after any current simulated decision is withdrawn.
+- FR-03.06–07: station admin may record Cleared/Hold/withdrawn only on current reviewed revision, explicit fictional acknowledgement and reason, compare expected previous decision ID. No automated Hold or actual authority. Submission attestation binds actor, time, statement and exact submitted revision; reviewed snapshot copies submitted content and references preceding attestation. This is not a cryptographic/legal signature.
+- FR-03.08–10: scoped, paginated list and append-only revision history including answers, actors, correction notes, attestations and simulated clearance events. Regional read across stations; Station Admin review own station; Inspector own drafts and reviewed records in own station; Records Officer reviewed records in own station. IT Admin excluded. Cross-station operational access and exact decision authority require approval. Evidence links are not altered; photo evidence upload is later.
+- BR-04/05/07: vessel/station/account binding, confirmed vs unsaved status, separate review and decision records. No operational or legal authorization.
+- NFR-18: target save within five seconds of completed input remains a measurement gate.
+
+## Implementation
+Migration 006 adds history/queue indexes only. Existing 36 tables, 266 columns. New append-only runtime INSERT/SELECT grants on seven inspection tables; no UPDATE/DELETE. Scoped API authorization, per-inspection transaction locks, version checks and atomic audit/history writes. Application controls workflow, not database row-level security. Original 001–005 untouched.
+Endpoints: GET /api/inspection-templates; POST /api/inspection-templates/demo (regional/station setup); GET/POST /api/inspections; GET /api/inspections/:id and /history; PUT /draft; POST /transition and /demo-clearance under /api/inspections/:id.
+Frontend: connected Inspections tab, search/select active vessel, checklist, online autosave, review, correction, history and simulated decisions. Graphite, Cobalt Blue and Evergreen unchanged. Use same Docker/MFA setup, rebuild migration/API. Station or Regional Admin initializes the fictional checklist once; Inspector creates drafts; Station Admin reviews and records demo statuses. Do not enter real records.
+
+## Verification
+Added transition-policy unit test and integration group for template setup, identity binding, checklist validation, concurrent stale saves, submit/return/review/reopen, attestation linkage, decision simulation and conflict checks, history, scope, append-only grants and frontend asset. Phase 3 commit must be verified independently by CI. Browser UX, save latency, offline behavior, device testing, actual PCG checklist, actual authorization/signature procedure, full security audit and photo evidence remain pending. New record creation is not yet idempotent across ambiguous network failures; check the list before retry. No deployment or merge to main.

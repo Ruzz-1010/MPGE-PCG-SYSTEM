@@ -25,3 +25,6 @@ GRANT SELECT (document_version_id,status,created_at,id) ON vw.document_reviews T
 GRANT SELECT (id,vessel_id,station_id,inspector_id,inspected_at) ON vw.inspections TO vesselwatch_app;
 GRANT SELECT (id,inspection_id,version,workflow_state) ON vw.inspection_versions TO vesselwatch_app;
 GRANT SELECT (id,inspection_version_id,status,is_simulated,created_at) ON vw.clearance_events TO vesselwatch_app;
+
+-- Phase 3: append-only demo inspection workflow. No update/delete on revisions, answers or decisions.
+GRANT SELECT, INSERT ON vw.checklist_templates,vw.checklist_items,vw.inspections,vw.inspection_versions,vw.checklist_answers,vw.inspection_attestations,vw.clearance_events TO vesselwatch_app;

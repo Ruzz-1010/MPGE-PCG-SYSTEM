@@ -3,6 +3,7 @@ import helmet from 'helmet';
 import {rateLimit} from 'express-rate-limit';
 import {randomBytes} from 'node:crypto';
 import QRCode from 'qrcode';
+import {mountInspections} from './inspections.js';
 import {createRequire} from 'node:module';
 const require=createRequire(import.meta.url);
 import {fileURLToPath} from 'node:url';
@@ -127,7 +128,7 @@ app.get('/api/dashboard',protectedRoute('dashboard.read',async(c,u)=>{
  const metrics={stations:stations.length};
  if(canReadVessels(u)){const counts=(await c.query("SELECT count(*)::int AS total,count(*) FILTER(WHERE profile_status='active')::int AS active FROM vw.vessels WHERE ($1::boolean OR station_id=$2::uuid)",[u.role==='regional',u.station_id])).rows[0];metrics.vessels=counts.total;metrics.activeVessels=counts.active;}
  if(['regional','station'].includes(u.role))metrics.accounts=(await c.query('SELECT count(*)::int AS total FROM vw.users WHERE ($1::boolean OR station_id=$2::uuid)',[u.role==='regional',u.station_id])).rows[0].total;
- await audit(c,u,'dashboard.read','dashboard');return ok({role:u.role,scope:global?'regional':'station',stations,metrics,capabilities:{registry:canReadVessels(u),writeRegistry:canWriteVessels(u),accounts:['regional','station'].includes(u.role),audit:canReadAudit(u)}});
+ await audit(c,u,'dashboard.read','dashboard');return ok({role:u.role,scope:global?'regional':'station',stations,metrics,capabilities:{inspections:canReadVessels(u),createInspection:u.role==='inspector',setupChecklist:['regional','station'].includes(u.role),registry:canReadVessels(u),writeRegistry:canWriteVessels(u),accounts:['regional','station'].includes(u.role),audit:canReadAudit(u)}});
 }));
 app.get('/api/stations',protectedRoute('stations.list',async(c,u)=>{
  const global=['regional','technical'].includes(u.role);
@@ -296,6 +297,7 @@ app.post('/api/qr/resolve',protectedRoute('qr.resolve',async(c,u,q)=>{
  if(!row)fail(404,'QR code not available');
  await audit(c,u,'qr.resolve','vessel',row.id);return ok({vessel:row,linked:await linkedRecords(c,u,row)});
 }));
+mountInspections(app,{protectedRoute,fail,body,uuid,page,ok});
 app.get('/api/audit',protectedRoute('audit.list',async(c,u,q)=>{
  if(!canReadAudit(u))fail(403,'Forbidden');
  const rows=(await c.query('SELECT id,actor_id,station_id,action,resource_type,resource_id,outcome,detail,recorded_at FROM vw.audit_events ORDER BY recorded_at DESC,id DESC LIMIT 50 OFFSET $1',[page(q.query.page)])).rows;
