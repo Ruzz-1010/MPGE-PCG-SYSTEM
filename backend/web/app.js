@@ -1,15 +1,16 @@
 import {inspectionWorkspace} from './inspections.js';
+import {documentWorkspace} from './documents.js';
 const $=id=>document.getElementById(id);
 const roleNames={regional:'Regional Administrator',station:'Station Administrator',inspector:'Inspector Personnel',records:'Records Officer',technical:'IT System Administrator'};
 const metricNames={stations:'Authorized stations',vessels:'Registered vessels',activeVessels:'Active vessel profiles',accounts:'Authorized accounts'};
 let user=null,dashboard=null,view='overview',generation=0,profileId=null,camera=null;
 let filters={q:'',status:'',type:'',stationId:'',page:1};
 function stopCamera(){if(camera){camera.getTracks().forEach(t=>t.stop());camera=null;}}
-function selectView(id){if(!leaveInspection())return;stopCamera();view=id;profileId=null;nav();render().catch(handle);}
+function selectView(id){if(!leaveInspection()||!leaveDocuments())return;stopCamera();view=id;profileId=null;nav();render().catch(handle);}
 function node(tag,text,cls){const el=document.createElement(tag);if(text!==undefined)el.textContent=String(text);if(cls)el.className=cls;return el;}
 function message(text='',error=false){$('message').textContent=text;$('message').classList.toggle('error',error);}
 function show(id){for(const p of ['login','password','workspace'])$(p).hidden=p!==id;}
-function reset(){disposeInspection();stopCamera();generation++;user=null;dashboard=null;view='overview';profileId=null;filters={q:'',status:'',type:'',stationId:'',page:1};$('welcome').textContent='';$('scope').textContent='';$('nav').replaceChildren();$('content').replaceChildren();$('loginForm').reset();$('passwordForm').reset();show('login');}
+function reset(){disposeDocuments();disposeInspection();stopCamera();generation++;user=null;dashboard=null;view='overview';profileId=null;filters={q:'',status:'',type:'',stationId:'',page:1};$('welcome').textContent='';$('scope').textContent='';$('nav').replaceChildren();$('content').replaceChildren();$('loginForm').reset();$('passwordForm').reset();show('login');}
 async function api(path,{method='GET',data}={}){
  const headers={'X-VW-Browser':'1'};if(data!==undefined)headers['Content-Type']='application/json';
  const r=await fetch('/api/'+path,{method,headers,credentials:'same-origin',cache:'no-store',body:data===undefined?undefined:JSON.stringify(data)});
@@ -21,16 +22,17 @@ try{theme(localStorage.getItem('vw-theme')??'graphite');}catch{theme('graphite')
 $('theme').addEventListener('change',e=>theme(e.target.value));
 function table(headers,rows){const wrap=node('div',undefined,'tablewrap'),t=node('table'),thead=node('thead'),hr=node('tr');for(const h of headers){const th=node('th',h);th.scope='col';hr.append(th);}thead.append(hr);t.append(thead);const body=node('tbody');for(const row of rows){const tr=node('tr');for(const field of row)tr.append(node('td',field??'—'));body.append(tr);}if(!rows.length){const tr=node('tr'),td=node('td','No authorized records found.');td.colSpan=headers.length;tr.append(td);body.append(tr);}t.append(body);wrap.append(t);return wrap;}
 function card(title){const section=node('section',undefined,'card section');section.append(node('h2',title));return section;}
-function nav(){const n=$('nav');n.replaceChildren();const tabs=[['overview','Overview'],...(dashboard.capabilities.registry?[['registry','Vessel registry'],['scan','QR lookup']]:[]),...(dashboard.capabilities.inspections?[['inspections','Inspections']]:[]),...(dashboard.capabilities.accounts?[['accounts','Accounts']]:[]),...(dashboard.capabilities.audit?[['audit','Audit history']]:[])];if(!tabs.some(t=>t[0]===view))view='overview';for(const [id,label] of tabs){const b=node('button',label,'secondary');b.type='button';if(view===id)b.setAttribute('aria-current','page');b.addEventListener('click',()=>selectView(id));n.append(b);}}
-async function render(){disposeInspection();stopCamera();const g=++generation,current=view,out=$('content');out.replaceChildren();if(!dashboard)return;
+function nav(){const n=$('nav');n.replaceChildren();const tabs=[['overview','Overview'],...(dashboard.capabilities.registry?[['registry','Vessel registry'],['scan','QR lookup']]:[]),...(dashboard.capabilities.inspections?[['inspections','Inspections']]:[]),...(dashboard.capabilities.documents?[['documents','Documents']]:[]),...(dashboard.capabilities.accounts?[['accounts','Accounts']]:[]),...(dashboard.capabilities.audit?[['audit','Audit history']]:[])];if(!tabs.some(t=>t[0]===view))view='overview';for(const [id,label] of tabs){const b=node('button',label,'secondary');b.type='button';if(view===id)b.setAttribute('aria-current','page');b.addEventListener('click',()=>selectView(id));n.append(b);}}
+async function render(){disposeDocuments();disposeInspection();stopCamera();const g=++generation,current=view,out=$('content');out.replaceChildren();if(!dashboard)return;
  if(current==='overview'){
   const metrics=node('div',undefined,'metrics');for(const [key,value] of Object.entries(dashboard.metrics)){const c=node('div',undefined,'metric card');c.append(node('small',metricNames[key]??key),node('strong',value));metrics.append(c);}out.append(metrics);
   const stations=card('Authorized station directory');stations.append(table(['Code','Station','Status'],dashboard.stations.map(s=>[s.code,s.name,s.active?'Active':'Inactive'])));out.append(stations);
-  const pending=card('Development status');pending.append(node('p','Connected: authentication, scoped dashboard, vessel registry, QR identification, digital inspections, account directory and audit history where authorized.', 'pending'),node('p','Document write workflows, notifications, offline sync, photo uploads, reports, watchlists, communication and actual backup/recovery remain pending. Inspection checklists, attestations and clearance decisions are fictional demonstrations only.','pending'));out.append(pending);return;
+  const pending=card('Development status');pending.append(node('p','Connected: authentication, scoped dashboard, vessel registry, QR identification, digital inspections, private documents and photo evidence, account directory and audit history where authorized.', 'pending'),node('p','Notifications, offline sync, reports, watchlists, communication and actual backup/recovery remain pending. Inspection checklists, attestations and clearance decisions are fictional demonstrations only.','pending'));out.append(pending);return;
  }
  if(current==='registry'){await registry(out);return;}
  if(current==='scan'){scanner(out);return;}
  if(current==='inspections'){await openInspections(out,g);return;}
+ if(current==='documents'){await openDocuments(out,g);return;}
  const c=card(current==='accounts'?'Authorized accounts':'Regional audit history');out.append(c);const rows=await api(current==='accounts'?'users':'audit');if(g!==generation||view!==current)return;
  c.append(current==='accounts'?table(['Username','Name','Role','Status'],rows.map(r=>[r.username,r.full_name,roleNames[r.role]??r.role,r.active?'Active':'Inactive'])):table(['Time','Action','Resource','Outcome'],rows.map(r=>[new Date(r.recorded_at).toLocaleString(),r.action,r.resource_type,r.outcome])));c.append(node('small','First 50 authorized records.'));
 }
@@ -147,13 +149,17 @@ async function openInspections(out,g){
  inspectionController=inspectionWorkspace({out,api,user,dashboard,node,card,table,button,field,choice,stationName,handle,message,isCurrent:()=>generation===g&&view==='inspections'});
  await inspectionController.start();
 }
-window.addEventListener('beforeunload',e=>{if(inspectionController?.hasUnsaved()){e.preventDefault();e.returnValue='';}});
+window.addEventListener('beforeunload',e=>{if(inspectionController?.hasUnsaved()||documentController?.hasUnsaved()){e.preventDefault();e.returnValue='';}});
 
+let documentController=null;
+function disposeDocuments(){documentController?.dispose();documentController=null;}
+function leaveDocuments(){return !documentController||documentController.canLeave();}
+async function openDocuments(out,g){documentController=documentWorkspace({out,api,dashboard,node,card,table,button,field,choice,stationName,handle,message,isCurrent:()=>generation===g&&view==='documents'});await documentController.start();}
 async function start(){const g=++generation;const current=await api('auth/me');if(g!==generation)return;user=current;if(user.must_change_password){show('password');return;}const d=await api('dashboard');if(g!==generation)return;dashboard=d;$('welcome').textContent=user.full_name||user.username;$('scope').textContent=(roleNames[user.role]??user.role)+' · '+(d.scope==='regional'?'Regional scope':d.stations[0]?.name??'Assigned station');show('workspace');nav();await render();}
 $('loginForm').addEventListener('submit',async e=>{e.preventDefault();const form=e.currentTarget,b=form.querySelector('button');b.disabled=true;message();try{const data=Object.fromEntries(new FormData(form));await api('browser/login',{method:'POST',data});form.reset();await start();}catch(err){handle(err);}finally{b.disabled=false;}});
 $('passwordForm').addEventListener('submit',async e=>{e.preventDefault();const form=e.currentTarget,b=form.querySelector('button');b.disabled=true;try{await api('auth/change-password',{method:'POST',data:Object.fromEntries(new FormData(form))});reset();message('Password updated. Please sign in again.');}catch(err){handle(err);}finally{b.disabled=false;}});
-async function logout(){if(!leaveInspection())return;stopCamera();try{await api('auth/logout',{method:'POST'});reset();message('Signed out.');}catch(e){if(e.status===401){reset();message('Session ended.');}else handle(e);}}
+async function logout(){if(!leaveInspection()||!leaveDocuments())return;stopCamera();try{await api('auth/logout',{method:'POST'});reset();message('Signed out.');}catch(e){if(e.status===401){reset();message('Session ended.');}else handle(e);}}
 $('logout').addEventListener('click',logout);$('passwordLogout').addEventListener('click',logout);
-$('refresh').addEventListener('click',()=>{if(!leaveInspection())return;message();start().catch(handle);});
+$('refresh').addEventListener('click',()=>{if(!leaveInspection()||!leaveDocuments())return;message();start().catch(handle);});
 window.addEventListener('pageshow',e=>{if(e.persisted){reset();start().catch(err=>{if(err.status!==401)handle(err);});}});
 start().catch(e=>{if(e.status!==401)handle(e);else reset();});

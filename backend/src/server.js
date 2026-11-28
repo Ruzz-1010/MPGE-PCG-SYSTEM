@@ -4,6 +4,9 @@ import {rateLimit} from 'express-rate-limit';
 import {randomBytes} from 'node:crypto';
 import QRCode from 'qrcode';
 import {mountInspections} from './inspections.js';
+import {mountDocuments} from './documents.js';
+import {createStorage} from './private-files.js';
+import {runExpirationCheck} from './expiry.js';
 import {createRequire} from 'node:module';
 const require=createRequire(import.meta.url);
 import {fileURLToPath} from 'node:url';
@@ -110,6 +113,7 @@ const protectedRoute=(action,handler,{allowChange=false}={})=>async(q,r)=>{
   }
  });
  if(cookie&&(result.status===401||((result.status??200)<400&&['logout','password.change'].includes(action))))r.clearCookie(cookieName,cookieOptions);
+ if(result.file){const f=result.file;r.set('Content-Type','application/octet-stream');r.attachment(f.name);r.set('Content-Type','application/octet-stream');r.set('X-Content-Type-Options','nosniff');return r.status(200).send(f.bytes);}
  r.status(result.status??200).json(result.data);
 };
 const ok=data=>({data});
@@ -128,7 +132,7 @@ app.get('/api/dashboard',protectedRoute('dashboard.read',async(c,u)=>{
  const metrics={stations:stations.length};
  if(canReadVessels(u)){const counts=(await c.query("SELECT count(*)::int AS total,count(*) FILTER(WHERE profile_status='active')::int AS active FROM vw.vessels WHERE ($1::boolean OR station_id=$2::uuid)",[u.role==='regional',u.station_id])).rows[0];metrics.vessels=counts.total;metrics.activeVessels=counts.active;}
  if(['regional','station'].includes(u.role))metrics.accounts=(await c.query('SELECT count(*)::int AS total FROM vw.users WHERE ($1::boolean OR station_id=$2::uuid)',[u.role==='regional',u.station_id])).rows[0].total;
- await audit(c,u,'dashboard.read','dashboard');return ok({role:u.role,scope:global?'regional':'station',stations,metrics,capabilities:{inspections:canReadVessels(u),createInspection:u.role==='inspector',setupChecklist:['regional','station'].includes(u.role),registry:canReadVessels(u),writeRegistry:canWriteVessels(u),accounts:['regional','station'].includes(u.role),audit:canReadAudit(u)}});
+ await audit(c,u,'dashboard.read','dashboard');return ok({role:u.role,scope:global?'regional':'station',stations,metrics,capabilities:{documents:canReadVessels(u),writeDocuments:canWriteVessels(u),inspections:canReadVessels(u),createInspection:u.role==='inspector',setupChecklist:['regional','station'].includes(u.role),registry:canReadVessels(u),writeRegistry:canWriteVessels(u),accounts:['regional','station'].includes(u.role),audit:canReadAudit(u)}});
 }));
 app.get('/api/stations',protectedRoute('stations.list',async(c,u)=>{
  const global=['regional','technical'].includes(u.role);
@@ -236,7 +240,7 @@ async function scopedVessel(c,u,id,write=false){
 async function linkedRecords(c,u,vessel){
  const docs=(await c.query(`SELECT d.id,dt.name AS type,d.required,dv.number,dv.expiry_date::text,dv.expiry_kind,
   COALESCE(dr.status,'needs_review') AS verification,
-  CASE WHEN dv.id IS NULL THEN 'unknown' WHEN dv.expiry_kind='not_applicable' THEN 'not_applicable' WHEN dv.expiry_kind='unknown' THEN 'unknown' WHEN dv.expiry_date < (clock_timestamp() AT TIME ZONE 'Asia/Manila')::date THEN 'expired' WHEN dv.expiry_date <= (clock_timestamp() AT TIME ZONE 'Asia/Manila')::date+30 THEN 'expiring_soon' ELSE 'valid_by_date' END AS date_status
+  CASE WHEN dv.id IS NULL THEN 'unknown' WHEN dv.expiry_kind='not_applicable' THEN 'not_applicable' WHEN dv.expiry_kind='unknown' THEN 'unknown' WHEN dv.expiry_date < (clock_timestamp() AT TIME ZONE 'Asia/Manila')::date THEN 'expired' WHEN dv.expiry_date = (clock_timestamp() AT TIME ZONE 'Asia/Manila')::date THEN 'due_today' WHEN dv.expiry_date <= (clock_timestamp() AT TIME ZONE 'Asia/Manila')::date+30 THEN 'expiring_soon' ELSE 'valid_by_date' END AS date_status
  FROM vw.documents d JOIN vw.document_types dt ON dt.id=d.type_id
  LEFT JOIN LATERAL (SELECT id,number,expiry_date,expiry_kind FROM vw.document_versions WHERE document_id=d.id ORDER BY version DESC LIMIT 1) dv ON true
  LEFT JOIN LATERAL (SELECT status FROM vw.document_reviews WHERE document_version_id=dv.id ORDER BY created_at DESC,id DESC LIMIT 1) dr ON true
@@ -297,7 +301,9 @@ app.post('/api/qr/resolve',protectedRoute('qr.resolve',async(c,u,q)=>{
  if(!row)fail(404,'QR code not available');
  await audit(c,u,'qr.resolve','vessel',row.id);return ok({vessel:row,linked:await linkedRecords(c,u,row)});
 }));
-mountInspections(app,{protectedRoute,fail,body,uuid,page,ok});
+const storage=await createStorage(process.env.VW_PRIVATE_DIR,fileURLToPath(new URL('../web/',import.meta.url)));
+mountDocuments(app,{protectedRoute,fail,body,uuid,page,ok,storage,raw:express.raw({type:'application/octet-stream',limit:'20mb',inflate:false})});
+mountInspections(app,{protectedRoute,fail,body,uuid,page,ok,storage,raw:express.raw({type:'application/octet-stream',limit:'10mb',inflate:false})});
 app.get('/api/audit',protectedRoute('audit.list',async(c,u,q)=>{
  if(!canReadAudit(u))fail(403,'Forbidden');
  const rows=(await c.query('SELECT id,actor_id,station_id,action,resource_type,resource_id,outcome,detail,recorded_at FROM vw.audit_events ORDER BY recorded_at DESC,id DESC LIMIT 50 OFFSET $1',[page(q.query.page)])).rows;
@@ -317,5 +323,9 @@ app.use((e,_q,r,_n)=>{
 const runtime=(await pool.query('SELECT current_user AS name,rolsuper,rolbypassrls,rolcreaterole,rolcreatedb FROM pg_roles WHERE rolname=current_user')).rows[0];
 const owner=(await pool.query("SELECT pg_has_role(current_user,nspowner,'MEMBER') AS member FROM pg_namespace WHERE nspname='vw'")).rows[0];
 if(!runtime||runtime.name!=='vesselwatch_app'||runtime.rolsuper||runtime.rolbypassrls||runtime.rolcreaterole||runtime.rolcreatedb||!owner||owner.member){await pool.end();throw Error('Unsafe database runtime role; expected restricted vesselwatch_app');}
+// Daily check is persistent and idempotent per Philippine calendar day. Live reads always recompute dates.
+const expiryTick=()=>runExpirationCheck().catch(()=>console.error('Daily document expiry check failed'));
+await expiryTick();const expiryTimer=setInterval(expiryTick,60*60*1000);expiryTimer.unref();
 const server=app.listen(Number(process.env.PORT??3000),process.env.HOST??'127.0.0.1',()=>console.log('VesselWatch Phase 1 API listening'));
-for(const signal of ['SIGTERM','SIGINT'])process.once(signal,()=>server.close(async()=>{await pool.end();process.exit(0);}));
+server.requestTimeout=30000;server.headersTimeout=10000;
+for(const signal of ['SIGTERM','SIGINT'])process.once(signal,()=>server.close(async()=>{clearInterval(expiryTimer);await pool.end();process.exit(0);}));

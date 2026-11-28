@@ -34,7 +34,10 @@ services:
       TRUST_LOCAL_PROXY: 0
       VW_LOCAL_HTTP: "1"
       VW_BROWSER_ORIGIN: http://127.0.0.1:3000
+      VW_PRIVATE_DIR: /var/lib/vesselwatch/files
       VW_MFA_KEY: ${VW_MFA_KEY:?Generate a separate 64-character hex key}
+    volumes:
+      - privatefiles:/var/lib/vesselwatch/files
     ports:
       - "127.0.0.1:3000:3000"
     depends_on:
@@ -55,7 +58,7 @@ services:
       API_URL: http://api:3000
       VW_TEST_ALLOW: "1"
       VW_MFA_KEY: ${VW_MFA_KEY:?Required}
-    command: ["sh", "-ec", "npm test && node --test integration/phase12.integration.js"]
+    command: ["sh", "-ec", "npm run check && npm test && node --test integration/phase12.integration.js"]
     depends_on:
       api:
         condition: service_healthy
@@ -65,3 +68,4 @@ networks:
     internal: true
 volumes:
   pgdata:
+  privatefiles:

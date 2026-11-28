@@ -1,7 +1,8 @@
 import {states,answers,demoTemplateName,demoItems,demoStatement,canInspect,canReview,transition} from './inspection-policy.js';
 import {audit} from './db.js';
+import {receiveUpload,uploadMetadata} from './documents.js';
 
-export function mountInspections(app,{protectedRoute,fail,body,uuid,page,ok}){
+export function mountInspections(app,{protectedRoute,fail,body,uuid,page,ok,storage,raw}){
  const first=async(c,sql,params=[]) => (await c.query(sql,params)).rows[0];
  const note=(v,max=2000,required=false)=>{
   if(typeof v!=='string'||v.length>max||/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(v)||(required&&!v.trim()))fail(400,'Invalid or missing note');
@@ -22,6 +23,8 @@ export function mountInspections(app,{protectedRoute,fail,body,uuid,page,ok}){
  const getItems=async(c,id)=>(await c.query('SELECT id,item_code,prompt,ordinal,required FROM vw.checklist_items WHERE template_id=$1 ORDER BY ordinal',[id])).rows;
  const getAnswers=async(c,id)=>(await c.query('SELECT item_id,answer,remarks FROM vw.checklist_answers WHERE inspection_version_id=$1 ORDER BY item_id',[id])).rows;
  const clearance=async(c,id)=>await first(c,'SELECT id,status,reason,is_simulated,decided_by,created_at FROM vw.clearance_events WHERE inspection_version_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1',[id])??null;
+ const evidence=async(c,id)=>(await c.query(`SELECT f.id,f.original_name,f.media_type,f.byte_size,f.sha256,f.scan_state,f.uploaded_by,f.created_at
+  FROM vw.evidence_links e JOIN vw.private_files f ON f.id=e.file_id WHERE e.inspection_version_id=$1 ORDER BY e.created_at,e.id`,[id])).rows;
  async function details(c,u,row){
   const items=await getItems(c,row.template_id),responses=await getAnswers(c,row.revision_id);
   // A review copies the submitted content, not its attestation. Show the exact signed source revision.
@@ -29,7 +32,7 @@ export function mountInspections(app,{protectedRoute,fail,body,uuid,page,ok}){
   FROM vw.inspection_attestations a JOIN vw.inspection_versions iv ON iv.id=a.inspection_version_id
   WHERE iv.inspection_id=$1 AND (iv.version=$2 OR ($3::text='reviewed' AND iv.version=$2-1 AND iv.workflow_state='submitted'))
   ORDER BY iv.version DESC LIMIT 1`,[row.id,row.version,row.workflow_state])??null;
-  return {...row,items,answers:responses,attestation:attest,clearance:await clearance(c,row.revision_id),
+  return {...row,items,answers:responses,evidence:await evidence(c,row.revision_id),attestation:attest,clearance:await clearance(c,row.revision_id),
    capabilities:{edit:u.role==='inspector'&&u.id===row.inspector_id&&['draft','returned'].includes(row.workflow_state),review:canReview(u)&&u.station_id===row.station_id&&row.workflow_state==='submitted',reopen:canReview(u)&&u.station_id===row.station_id&&row.workflow_state==='reviewed',demoClearance:canReview(u)&&u.station_id===row.station_id&&row.workflow_state==='reviewed'}};
  }
  function validateResponses(items,input,complete){
@@ -49,6 +52,7 @@ export function mountInspections(app,{protectedRoute,fail,body,uuid,page,ok}){
  async function append(c,u,row,state,findings,responses,reason=null){
   const revision=await first(c,'INSERT INTO vw.inspection_versions(inspection_id,template_id,version,workflow_state,findings,change_reason,changed_by) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id,version,created_at',[row.id,row.template_id,row.version+1,state,findings,reason,u.id]);
   for(const a of responses)await c.query('INSERT INTO vw.checklist_answers(inspection_version_id,template_id,item_id,answer,remarks) VALUES($1,$2,$3,$4,$5)',[revision.id,row.template_id,a.item_id,a.answer,a.remarks]);
+  if(row.revision_id)await c.query('INSERT INTO vw.evidence_links(file_id,inspection_version_id,attached_by,created_at) SELECT file_id,$1,attached_by,created_at FROM vw.evidence_links WHERE inspection_version_id=$2',[revision.id,row.revision_id]);
   return {...row,revision_id:revision.id,version:revision.version,revision_at:revision.created_at,workflow_state:state,findings,change_reason:reason};
  }
  app.get('/api/inspection-templates',protectedRoute('inspection.templates',async(c,u)=>{
@@ -98,7 +102,7 @@ export function mountInspections(app,{protectedRoute,fail,body,uuid,page,ok}){
   const full=['station','regional'].includes(u.role)||(u.role==='inspector'&&row.inspector_id===u.id);
   const where=" WHERE inspection_id=$1 AND ($2::boolean OR workflow_state='reviewed')";
   const rows=(await c.query('SELECT id,version,workflow_state,findings,change_reason,changed_by,created_at FROM vw.inspection_versions'+where+' ORDER BY version DESC LIMIT 50 OFFSET $3',[row.id,full,offset])).rows;
-  for(const r of rows){r.answers=await getAnswers(c,r.id);r.attestations=(await c.query('SELECT statement,attested_by,is_simulated,created_at FROM vw.inspection_attestations WHERE inspection_version_id=$1',[r.id])).rows;r.clearanceEvents=(await c.query('SELECT status,reason,decided_by,is_simulated,created_at FROM vw.clearance_events WHERE inspection_version_id=$1 ORDER BY created_at DESC,id DESC',[r.id])).rows;}
+  for(const r of rows){r.answers=await getAnswers(c,r.id);r.evidence=await evidence(c,r.id);r.attestations=(await c.query('SELECT statement,attested_by,is_simulated,created_at FROM vw.inspection_attestations WHERE inspection_version_id=$1',[r.id])).rows;r.clearanceEvents=(await c.query('SELECT status,reason,decided_by,is_simulated,created_at FROM vw.clearance_events WHERE inspection_version_id=$1 ORDER BY created_at DESC,id DESC',[r.id])).rows;}
   const total=(await first(c,'SELECT count(*)::int AS total FROM vw.inspection_versions'+where,[row.id,full])).total;
   await audit(c,u,'inspections.history','inspection',row.id);return ok({rows,total,page:offset/50+1,pageSize:50});
  }));
@@ -129,6 +133,23 @@ export function mountInspections(app,{protectedRoute,fail,body,uuid,page,ok}){
   const saved=await append(c,u,row,next,row.findings,responses,reason||null);
   if(b.action==='submit')await c.query('INSERT INTO vw.inspection_attestations(inspection_version_id,attested_by,statement) VALUES($1,$2,$3)',[saved.revision_id,u.id,demoStatement]);
   await audit(c,u,'inspections.'+b.action,'inspection',row.id,'success',{version:saved.version});return ok(await details(c,u,saved));
+ }));
+ app.post('/api/inspections/:id/evidence',protectedRoute('inspections.evidence',async(c,u,q)=>{
+  const row=await getCurrent(c,u,uuid(q.params.id),true);
+  if(u.role!=='inspector'||u.id!==row.inspector_id)fail(403,'Forbidden');
+  if(!['draft','returned'].includes(row.workflow_state))fail(409,'Evidence can only be added to an editable inspection');
+  const b=uploadMetadata(q,fail);
+  if(Object.keys(b).some(k=>!['filename','version'].includes(k)))fail(400,'Unexpected evidence field');
+  if(version(b.version)!==row.version)fail(409,'Inspection changed; reload before adding evidence');
+  const existing=await evidence(c,row.revision_id);
+  if(existing.length>=10)fail(409,'Maximum 10 photos per inspection revision in this prototype');
+  const upload=await receiveUpload(q,raw,fail,true,b);
+  if(existing.some(f=>f.sha256===upload.meta.hash))fail(409,'Photo already attached');
+  const file=await storage.store(c,u,upload.bytes,upload.meta);
+  const saved=await append(c,u,row,row.workflow_state,row.findings,await getAnswers(c,row.revision_id),row.change_reason);
+  await c.query('INSERT INTO vw.evidence_links(file_id,inspection_version_id,attached_by) VALUES($1,$2,$3)',[file.id,saved.revision_id,u.id]);
+  await audit(c,u,'inspections.evidence','inspection',row.id,'success',{version:saved.version,fileId:file.id});
+  return {status:201,data:await details(c,u,saved)};
  }));
  app.post('/api/inspections/:id/demo-clearance',protectedRoute('inspections.demo_clearance',async(c,u,q)=>{
   const row=await getCurrent(c,u,uuid(q.params.id),true),b=body(q,['version','status','reason','acknowledgeSimulation','expectedEventId']);

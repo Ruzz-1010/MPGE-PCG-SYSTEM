@@ -28,3 +28,6 @@ GRANT SELECT (id,inspection_version_id,status,is_simulated,created_at) ON vw.cle
 
 -- Phase 3: append-only demo inspection workflow. No update/delete on revisions, answers or decisions.
 GRANT SELECT, INSERT ON vw.checklist_templates,vw.checklist_items,vw.inspections,vw.inspection_versions,vw.checklist_answers,vw.inspection_attestations,vw.clearance_events TO vesselwatch_app;
+
+-- Phase 4: private file metadata, document versions and evidence are append-only.
+GRANT SELECT, INSERT ON vw.document_types,vw.documents,vw.document_versions,vw.document_reviews,vw.private_files,vw.evidence_links,vw.expiration_checks TO vesselwatch_app;

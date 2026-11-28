@@ -1,6 +1,6 @@
 # Database ERD V2.0
 
-36 tables, split into readable views. Dashed relationships are non-identifying; each FK parent has zero or more children; a nullable FK permits zero parents. Composite FKs constrain the same template/vessel and are documented in the dictionary. Repeated parent entities are intentional. Mermaid renders in GitHub.
+37 tables, split into readable views. Dashed relationships are non-identifying; each FK parent has zero or more children; a nullable FK permits zero parents. Composite FKs constrain the same template/vessel and are documented in the dictionary. Repeated parent entities are intentional. Mermaid renders in GitHub.
 
 ## Registry, access, audit
 
@@ -517,3 +517,21 @@ Approval-dependent records are simulation-only. Current version selection, permi
 - violations (inspection_id, vessel_id) → inspections (id, vessel_id); inspection_id optional.
 - list_reviews (source_violation_id, vessel_id) → violations (id, vessel_id); source_violation_id optional.
 - Active QR is unique per vessel; historical revoked QR rows remain one-to-many. Evidence/alert recipient deduplication is enforced with partial unique indexes.
+
+## Daily expiration monitoring (Phase 4)
+
+```mermaid
+erDiagram
+    expiration_checks {
+        date check_date PK
+        timestamptz completed_at
+        integer document_count
+        integer expired_required
+        integer due_30
+        integer due_7
+        integer due_1
+        integer unknown_count
+    }
+```
+
+Standalone daily aggregate check, derived from current document versions and vessel records; no direct FK because no individual document or owner data is stored in the checkpoint.

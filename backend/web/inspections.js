@@ -1,9 +1,10 @@
+import {uploadFile,fileControls} from './file-utils.js';
 export function inspectionWorkspace({out,api,user,dashboard,node,card,table,button,field,choice,stationName,handle,message,isCurrent}){
- let closed=false,epoch=0,dirty=false,pending=null,timer=null,stale=false;
+ let closed=false,epoch=0,dirty=false,pending=null,timer=null,stale=false,uploading=false;
  const alive=e=>!closed&&isCurrent()&&(e===undefined||e===epoch);
  const stop=()=>{clearTimeout(timer);timer=null;};
  const dispose=()=>{closed=true;epoch++;stop();};
- const hasUnsaved=()=>dirty||Boolean(pending);
+ const hasUnsaved=()=>dirty||Boolean(pending)||uploading;
  const canLeave=()=>!hasUnsaved()||window.confirm('Inspection changes are not confirmed saved. Leave this screen?');
  const report=e=>{if(alive())handle(e);};
  const demo='THESIS SIMULATION ONLY — fictional checklist, attestation and clearance. Not an official PCG record or permission to depart.';
@@ -78,6 +79,7 @@ export function inspectionWorkspace({out,api,user,dashboard,node,card,table,butt
    const controls=node('div',undefined,'actions');const saveBtn=button('Save draft',()=>save().catch(report),false);
    const ack=checkbox('I acknowledge this fictional submission; this is not a legal digital signature.');
    const submit=button('Submit for review',async()=>{
+    if(uploading)return;
     if(!ack.i.checked){message('Confirm the simulated attestation before submitting.',true);return;}
     submit.disabled=true;stop();try{
      if(!await save()||dirty||stale||!alive(e))return;
@@ -90,6 +92,27 @@ export function inspectionWorkspace({out,api,user,dashboard,node,card,table,butt
    form.append(ack.l);controls.append(saveBtn,submit,button('Reload saved record',()=>{if(canLeave())detail(id).catch(report);}));form.append(controls);
   }
   c.append(form);
+  const evidenceBox=node('section',undefined,'reviewBox');evidenceBox.append(node('h3','Photo evidence'));
+  for(const f of record.evidence??[])evidenceBox.append(fileControls(f,{node,button,handle:report,alive:()=>alive(e)}));
+  if(!(record.evidence??[]).length)evidenceBox.append(node('p','No attached photos.'));
+  if(edit){
+   const l=node('label','Choose vessel or document photo (PNG/JPEG, max 10 MiB)'),input=node('input');input.type='file';input.accept='image/png,image/jpeg';l.append(input);
+   const capture=node('input');capture.type='file';capture.accept='image/jpeg,image/png';capture.setAttribute('capture','environment');const cl=node('label','Capture photo on supported phone');cl.append(capture);
+   const state=node('p','Photo is saved to a new inspection revision.','saveState');state.setAttribute('role','status');
+   const add=button('Upload selected photo',async()=>{
+    const file=input.files[0]??capture.files[0];if(!file||file.size>10*1024*1024){state.textContent='Select a photo up to 10 MiB.';return;}
+    if(uploading)return;uploading=true;add.disabled=true;
+    try{if(!await save()||dirty||stale||!alive(e)){state.textContent='Save the draft successfully before uploading.';return;}
+     const controls=[...form.querySelectorAll('input,textarea,select,button')],previous=controls.map(x=>x.disabled);controls.forEach(x=>x.disabled=true);
+     try{const r=await uploadFile('inspections/'+id+'/evidence',file,{version:record.version},p=>{if(alive(e))state.textContent=p===100?'Validating and saving…':'Uploading '+(p??'')+'%';});
+      if(alive(e)){message('Photo attached to revision '+r.version+'.');await detail(id);}
+     }finally{controls.forEach((x,i)=>x.disabled=previous[i]);}
+    }catch(err){if(alive(e)){state.textContent='Not confirmed. Check saved evidence before retrying. '+err.message;report(err);}}
+    finally{uploading=false;add.disabled=false;}
+   },false);
+   input.addEventListener('change',()=>{capture.value='';});capture.addEventListener('change',()=>{input.value='';});
+   evidenceBox.append(l,cl,state,add);
+  }c.append(evidenceBox);
   if(record.attestation)c.append(node('h3','Simulated attestation'),node('p',record.attestation.statement),node('p','Attested revision '+record.attestation.attested_version+' · '+pDate(record.attestation.created_at)));
   if(record.clearance)c.append(node('h3','Recorded demo clearance'),node('p',record.clearance.status.toUpperCase()+' (SIMULATED) · '+pDate(record.clearance.created_at)),node('p',record.clearance.reason));
   else c.append(node('p','Departure clearance: not recorded. Internal review is not departure authorization.','pending'));
@@ -116,7 +139,7 @@ export function inspectionWorkspace({out,api,user,dashboard,node,card,table,butt
   async function loadHistory(page=1){
    const h=await api('inspections/'+id+'/history?page='+page);if(!alive(e))return;history.replaceChildren(node('h2','Version history'),button('Refresh history',()=>loadHistory(1).catch(report)));
    const labels=new Map(record.items.map(i=>[i.id,i.prompt]));
-   for(const r of h.rows){const d=node('details'),sum=node('summary','Revision '+r.version+' · '+r.workflow_state+' · '+pDate(r.created_at));d.append(sum,node('p','Actor ID: '+r.changed_by),node('p','Reason: '+(r.change_reason??'—')),node('pre',r.findings||'No findings recorded.'),table(['Item','Response','Remarks'],r.answers.map(a=>[labels.get(a.item_id)??a.item_id,a.answer,a.remarks])),table(['Attestation','Actor','Time'],r.attestations.map(a=>[a.statement,a.attested_by,pDate(a.created_at)])),table(['Simulated decision','Reason','Actor','Time'],r.clearanceEvents.map(a=>[a.status+' (DEMO)',a.reason,a.decided_by,pDate(a.created_at)])));history.append(d);}
+   for(const r of h.rows){const d=node('details'),sum=node('summary','Revision '+r.version+' · '+r.workflow_state+' · '+pDate(r.created_at));d.append(sum,node('p','Actor ID: '+r.changed_by),node('p','Reason: '+(r.change_reason??'—')),node('pre',r.findings||'No findings recorded.'),table(['Item','Response','Remarks'],r.answers.map(a=>[labels.get(a.item_id)??a.item_id,a.answer,a.remarks])),table(['Attestation','Actor','Time'],r.attestations.map(a=>[a.statement,a.attested_by,pDate(a.created_at)])),table(['Simulated decision','Reason','Actor','Time'],r.clearanceEvents.map(a=>[a.status+' (DEMO)',a.reason,a.decided_by,pDate(a.created_at)])));for(const f of r.evidence??[])d.append(fileControls(f,{node,button,handle:report,alive:()=>alive(e)}));history.append(d);}
    const row=node('div',undefined,'actions pagination'),prev=button('Previous',()=>loadHistory(page-1).catch(report)),next=button('Next',()=>loadHistory(page+1).catch(report));prev.disabled=page===1;next.disabled=page*h.pageSize>=h.total;row.append(prev,node('span','Page '+page+' · '+h.total+' revisions'),next);history.append(row);
   }await loadHistory();
  }

@@ -1,6 +1,6 @@
 # MEPG VesselWatch — data dictionary V2.0
 
-Draft schema for synthetic thesis data; approval-dependent features remain simulated. The SQL migrations are authoritative for exact types and constraints. This register includes every column of 36 tables (excluding migration bookkeeping). Nullable unless NOT NULL or primary key. No future-module runtime grants until API authorization is implemented.
+Draft schema for synthetic thesis data; approval-dependent features remain simulated. The SQL migrations are authoritative for exact types and constraints. This register includes every column of 37 tables (excluding migration bookkeeping). Nullable unless NOT NULL or primary key. No future-module runtime grants until API authorization is implemented.
 
 ## stations — Participating station directory (nine synthetic rows initially)
 
@@ -642,3 +642,18 @@ See 001 and 002 for normalized registration uniqueness, QR active uniqueness, ev
 | users | mfa_last_step | bigint, nullable, nonnegative | Last accepted TOTP time step; prevents replay |
 
 Constraint: last step must be null if seed absent. Migration revokes existing sessions. No additional tables.
+
+## expiration_checks — Daily aggregate date-monitoring checkpoint (migration 007)
+
+| Field | Type / constraints | Purpose |
+|---|---|---|
+| check_date | date PRIMARY KEY | Philippine calendar date; one recorded check per day |
+| completed_at | timestamptz NOT NULL DEFAULT clock_timestamp() | Time completed |
+| document_count | integer NOT NULL, >=0 | Number of latest document versions checked |
+| expired_required | integer NOT NULL, >=0 | Required documents expired by recorded date |
+| due_30 | integer NOT NULL, >=0 | Latest records exactly 30 days before expiry |
+| due_7 | integer NOT NULL, >=0 | Latest records exactly 7 days before expiry |
+| due_1 | integer NOT NULL, >=0 | Latest records exactly one day before expiry |
+| unknown_count | integer NOT NULL, >=0 | Latest records with unknown expiry |
+
+The checkpoint is aggregate operational metadata, not a notification queue or legal determination. Live scoped queries recompute date status on each request. 007 also adds document-review, vessel/type and evidence revision indexes and three fictional document types. File scan_state accepted in Phase 4 means structural validation only; malware scanning is pending. Original file bytes and SHA-256 are retained. Evidence link rows are copied to later immutable inspection revisions, retaining original attachment actor/time; old links are not overwritten.
