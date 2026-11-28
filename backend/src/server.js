@@ -5,6 +5,7 @@ import {randomBytes} from 'node:crypto';
 import QRCode from 'qrcode';
 import {mountInspections} from './inspections.js';
 import {mountDocuments} from './documents.js';
+import {mountNotifications,runNotifications} from './notifications.js';
 import {createStorage} from './private-files.js';
 import {runExpirationCheck} from './expiry.js';
 import {createRequire} from 'node:module';
@@ -132,7 +133,8 @@ app.get('/api/dashboard',protectedRoute('dashboard.read',async(c,u)=>{
  const metrics={stations:stations.length};
  if(canReadVessels(u)){const counts=(await c.query("SELECT count(*)::int AS total,count(*) FILTER(WHERE profile_status='active')::int AS active FROM vw.vessels WHERE ($1::boolean OR station_id=$2::uuid)",[u.role==='regional',u.station_id])).rows[0];metrics.vessels=counts.total;metrics.activeVessels=counts.active;}
  if(['regional','station'].includes(u.role))metrics.accounts=(await c.query('SELECT count(*)::int AS total FROM vw.users WHERE ($1::boolean OR station_id=$2::uuid)',[u.role==='regional',u.station_id])).rows[0].total;
- await audit(c,u,'dashboard.read','dashboard');return ok({role:u.role,scope:global?'regional':'station',stations,metrics,capabilities:{documents:canReadVessels(u),writeDocuments:canWriteVessels(u),inspections:canReadVessels(u),createInspection:u.role==='inspector',setupChecklist:['regional','station'].includes(u.role),registry:canReadVessels(u),writeRegistry:canWriteVessels(u),accounts:['regional','station'].includes(u.role),audit:canReadAudit(u)}});
+ if(['regional','station','records'].includes(u.role))metrics.unreadNotices=(await c.query("SELECT count(*)::int AS total FROM vw.notifications n JOIN vw.document_versions dv ON dv.id=n.document_version_id JOIN vw.documents d ON d.id=dv.document_id JOIN vw.vessels v ON v.id=d.vessel_id WHERE n.channel='dashboard' AND n.recipient_user_id=$1 AND n.state='queued' AND ($2::boolean OR v.station_id=$3::uuid)",[u.id,u.role==='regional',u.station_id])).rows[0].total;
+ await audit(c,u,'dashboard.read','dashboard');return ok({role:u.role,scope:global?'regional':'station',stations,metrics,capabilities:{notifications:['regional','station','records'].includes(u.role),writeNotifications:['station','records'].includes(u.role),documents:canReadVessels(u),writeDocuments:canWriteVessels(u),inspections:canReadVessels(u),createInspection:u.role==='inspector',setupChecklist:['regional','station'].includes(u.role),registry:canReadVessels(u),writeRegistry:canWriteVessels(u),accounts:['regional','station'].includes(u.role),audit:canReadAudit(u)}});
 }));
 app.get('/api/stations',protectedRoute('stations.list',async(c,u)=>{
  const global=['regional','technical'].includes(u.role);
@@ -303,6 +305,7 @@ app.post('/api/qr/resolve',protectedRoute('qr.resolve',async(c,u,q)=>{
 }));
 const storage=await createStorage(process.env.VW_PRIVATE_DIR,fileURLToPath(new URL('../web/',import.meta.url)));
 mountDocuments(app,{protectedRoute,fail,body,uuid,page,ok,storage,raw:express.raw({type:'application/octet-stream',limit:'20mb',inflate:false})});
+mountNotifications(app,{protectedRoute,fail,body,uuid,page,ok});
 mountInspections(app,{protectedRoute,fail,body,uuid,page,ok,storage,raw:express.raw({type:'application/octet-stream',limit:'10mb',inflate:false})});
 app.get('/api/audit',protectedRoute('audit.list',async(c,u,q)=>{
  if(!canReadAudit(u))fail(403,'Forbidden');
@@ -324,7 +327,7 @@ const runtime=(await pool.query('SELECT current_user AS name,rolsuper,rolbypassr
 const owner=(await pool.query("SELECT pg_has_role(current_user,nspowner,'MEMBER') AS member FROM pg_namespace WHERE nspname='vw'")).rows[0];
 if(!runtime||runtime.name!=='vesselwatch_app'||runtime.rolsuper||runtime.rolbypassrls||runtime.rolcreaterole||runtime.rolcreatedb||!owner||owner.member){await pool.end();throw Error('Unsafe database runtime role; expected restricted vesselwatch_app');}
 // Daily check is persistent and idempotent per Philippine calendar day. Live reads always recompute dates.
-const expiryTick=()=>runExpirationCheck().catch(()=>console.error('Daily document expiry check failed'));
+const expiryTick=async()=>{try{await runExpirationCheck();await runNotifications();}catch{console.error('Expiry or notification check failed');}};
 await expiryTick();const expiryTimer=setInterval(expiryTick,60*60*1000);expiryTimer.unref();
 const server=app.listen(Number(process.env.PORT??3000),process.env.HOST??'127.0.0.1',()=>console.log('VesselWatch Phase 1 API listening'));
 server.requestTimeout=30000;server.headersTimeout=10000;

@@ -657,3 +657,7 @@ Constraint: last step must be null if seed absent. Migration revokes existing se
 | unknown_count | integer NOT NULL, >=0 | Latest records with unknown expiry |
 
 The checkpoint is aggregate operational metadata, not a notification queue or legal determination. Live scoped queries recompute date status on each request. 007 also adds document-review, vessel/type and evidence revision indexes and three fictional document types. File scan_state accepted in Phase 4 means structural validation only; malware scanning is pending. Original file bytes and SHA-256 are retained. Evidence link rows are copied to later immutable inspection revisions, retaining original attachment actor/time; old links are not overwritten.
+
+## Phase 5 (migration 008)
+
+`owner_contacts.is_demo`: boolean NOT NULL DEFAULT true CHECK(is_demo), simulation-only marker. Application only accepts reserved fictional 202-555-01xx recipients, and scheduler rejects all other numbers. Notification indexes cover recipient/state, contact/state and attempt order. No new table. Existing dedup indexes enforce one notice per version/threshold/recipient/channel. Status and acknowledgements may change; attempts remain append-only.

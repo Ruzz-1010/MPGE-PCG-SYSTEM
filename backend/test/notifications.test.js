@@ -1,0 +1,2 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {threshold,demoPhone,admin,writer} from '../src/notification-policy.js';
+test('expiry buckets and simulation-only contact policy',()=>{for(const [d,t] of [[31,null],[30,30],[8,30],[7,7],[2,7],[1,1],[0,0],[-5,-1],[null,null]])assert.equal(threshold(d),t);assert.equal(demoPhone('+12025550101'),true);assert.equal(demoPhone('+639123456789'),false);assert.equal(admin({role:'inspector'}),false);assert.equal(writer({role:'regional'}),false);});

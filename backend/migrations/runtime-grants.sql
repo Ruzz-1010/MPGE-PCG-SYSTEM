@@ -31,3 +31,8 @@ GRANT SELECT, INSERT ON vw.checklist_templates,vw.checklist_items,vw.inspections
 
 -- Phase 4: private file metadata, document versions and evidence are append-only.
 GRANT SELECT, INSERT ON vw.document_types,vw.documents,vw.document_versions,vw.document_reviews,vw.private_files,vw.evidence_links,vw.expiration_checks TO vesselwatch_app;
+
+-- Phase 5: synthetic recipient registry, notice status and append-only delivery history.
+GRANT SELECT, INSERT ON vw.owner_contacts,vw.notifications,vw.notification_attempts TO vesselwatch_app;
+GRANT UPDATE (sms_authorized) ON vw.owner_contacts TO vesselwatch_app;
+GRANT UPDATE (state,acknowledged_at,acknowledged_by) ON vw.notifications TO vesselwatch_app;

@@ -84,6 +84,7 @@ erDiagram
         boolean sms_authorized
         uuid recorded_by FK
         timestamptz created_at
+        boolean is_demo
     }
     stations o|..o{ users : station_id
     users ||..o{ sessions : user_id
@@ -235,6 +236,7 @@ erDiagram
         boolean sms_authorized
         uuid recorded_by FK
         timestamptz created_at
+        boolean is_demo
     }
     inspections {
         uuid id PK
